@@ -16,32 +16,22 @@ export class TextureGenerator {
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
 
-    // Clean dark matte asphalt matching reference image
-    ctx.fillStyle = '#23272f';
+    // Clean dark neutral matte asphalt matching reference image (pure charcoal, zero blue tint)
+    ctx.fillStyle = '#202226';
     ctx.fillRect(0, 0, 512, 512);
 
     // Subtle fine asphalt micro-grain
     for (let i = 0; i < 3000; i++) {
       const x = Math.random() * 512;
       const y = Math.random() * 512;
-      const gray = Math.floor(30 + Math.random() * 15);
+      const gray = Math.floor(25 + Math.random() * 14);
       ctx.fillStyle = `rgb(${gray},${gray},${gray})`;
       ctx.fillRect(x, y, 2, 2);
     }
 
-    // Crisp white shoulder lines (both edges)
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    ctx.moveTo(28, 0);
-    ctx.lineTo(28, 512);
-    ctx.moveTo(484, 0);
-    ctx.lineTo(484, 512);
-    ctx.stroke();
-
     // Golden yellow dashed centerline
     ctx.strokeStyle = '#facc15';
-    ctx.lineWidth = 8;
+    ctx.lineWidth = 7;
     ctx.setLineDash([48, 32]);
     ctx.beginPath();
     ctx.moveTo(256, 0);
@@ -136,10 +126,11 @@ export class TextureGenerator {
 
     // 2. QUADRANT TOP-LEFT: Corporate Glass Tower (x: 0..512, y: 0..512)
     // Three.js UV: U in [0.0, 0.5], V in [0.5, 1.0]
-    ctx.fillStyle = '#0f172a';
+    // Clean modern architectural slate background (never pitch-black!)
+    ctx.fillStyle = '#334155';
     ctx.fillRect(0, 0, 512, 512);
 
-    // Grid of reflective glass panes
+    // Grid of modern architectural reflective glass panes
     const towerRows = 16;
     const towerCols = 10;
     const colW = 512 / towerCols;
@@ -147,17 +138,21 @@ export class TextureGenerator {
 
     for (let r = 0; r < towerRows; r++) {
       const y = r * rowH;
+      // White/silver floor spandrel slab band every 2 floors
+      const isFloorSlab = r % 2 === 0;
+
       for (let c = 0; c < towerCols; c++) {
         const x = c * colW;
-        // Glass pane reflection variations
-        const isCyan = (r + c * 3) % 4 === 0;
-        const isSky = (r * 2 + c) % 5 === 0;
-        ctx.fillStyle = isCyan ? '#0284c7' : isSky ? '#38bdf8' : '#0f172a';
+
+        // Modern architectural curtain wall reflections
+        const paneColorIdx = (r * 3 + c * 2) % 6;
+        const paneColors = ['#1e40af', '#2563eb', '#0284c7', '#38bdf8', '#334155', '#475569'];
+        ctx.fillStyle = paneColors[paneColorIdx];
         ctx.fillRect(x + 2, y + 2, colW - 4, rowH - 4);
 
-        // Mullion border
-        ctx.strokeStyle = '#475569';
-        ctx.lineWidth = 1.5;
+        // Crisp silver/white window mullions & floor trim
+        ctx.strokeStyle = isFloorSlab ? '#e2e8f0' : '#cbd5e1';
+        ctx.lineWidth = isFloorSlab ? 2.5 : 1.2;
         ctx.strokeRect(x, y, colW, rowH);
       }
     }

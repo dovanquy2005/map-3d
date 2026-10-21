@@ -20,8 +20,8 @@ export const DEFAULT_COORDS = {
   lon: parseFloat(import.meta.env.VITE_DEFAULT_LON || '106.7019'),
 };
 
-// Expanded area size: ~1,000m x 1,000m (5x area of original 440m x 440m)
-export const DEFAULT_RADIUS_METERS = 500;
+// Expanded metropolis area: ~2,200m x 2,200m (4.84 km² = 5x area of previous 1.0 km²)
+export const DEFAULT_RADIUS_METERS = 1100;
 
 export const SAIGON_PRESETS: PresetLocation[] = [
   {
@@ -99,18 +99,25 @@ export const SAIGON_PALETTES = {
   pearlWhite: 0xf8fafc,
   concreteGrey: 0xe2e8f0,
   concreteDark: 0x334155,
-  towerNavy: 0x1e293b,
-  towerSlate: 0x0f172a,
+  // Modern Architectural Tower Facades & Glass Curtain Walls
+  towerSlate: 0x334155,       // Slate reflective architectural glass
+  towerNavy: 0x1e3a5f,        // Deep modern blue architectural glass
+  towerSteel: 0x475569,       // Brushed steel & glass frame
+  towerGlassBlue: 0x2563eb,   // Modern sapphire curtain wall
+  towerRoofMechanical: 0x94a3b8, // Light concrete mechanical penthouse roof
 
-  // Authentic Roof Tiles & Corrugated Metal Sheets
-  terracottaRoof: 0xdc2626,
-  crimsonRoof: 0xb91c1c,
-  orangeRoof: 0xea580c,
-  cinnamonRoof: 0xc2410c,
-  blueRoof: 0x2563eb,
-  sapphireRoof: 0x1d4ed8,
-  mossGreenRoof: 0x15803d,
-  flatRoofConcrete: 0xe2e8f0,
+  // Authentic Vietnamese Roof Tiles & Corrugated Metal Sheets (Matching reference image)
+  terracottaRoof: 0xdc2626,   // Classic Vietnamese red clay tile (Ngói đỏ)
+  crimsonRoof: 0xb91c1c,      // Deep crimson kiln-fired tile
+  orangeRoof: 0xea580c,       // Vibrant terracotta orange tile
+  cinnamonRoof: 0xc2410c,     // Rich cinnamon tile
+  blueRoof: 0x2563eb,         // Popular blue corrugated metal sheet (Tôn xanh)
+  sapphireRoof: 0x1d4ed8,     // Sapphire corrugated metal
+  mossGreenRoof: 0x15803d,    // Moss green corrugated metal
+  flatRoofTerracotta: 0xc2410c, // Terracotta rooftop patio tile
+  flatRoofOchre: 0xd97706,    // Warm ochre roof deck
+  flatRoofBlueMetal: 0x2563eb,// Rooftop metal shelter
+  flatRoofConcrete: 0xcfd4dc, // Cool grey concrete slab deck
 
   // Landmarks & Institutional
   historicRed: 0xb91c1c,
@@ -118,9 +125,10 @@ export const SAIGON_PALETTES = {
   glassTowerCyan: 0x38bdf8,
 
   // Pavement & Environment
-  mainAsphalt: 0x2b3342,
+  mainAsphalt: 0x202226,
   sidewalkConcrete: 0xe2e8f0,
   alleyPavement: 0x64748b,
   tropicalWater: 0x0284c7,
   parkGreen: 0x4ade80,
 };
+

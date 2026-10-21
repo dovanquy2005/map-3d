@@ -15,7 +15,7 @@ export interface OverpassQueryResult {
  */
 export function buildOverpassQL(bbox: BBox): string {
   const { south, west, north, east } = bbox;
-  return `[out:json][timeout:15];
+  return `[out:json][timeout:25];
 (
   way["highway"](${south},${west},${north},${east});
   way["building"](${south},${west},${north},${east});
@@ -636,11 +636,11 @@ export async function fetchOverpassData(
       }
     }, 3000);
 
-    // Timeout safeguard (7s max)
+    // Timeout safeguard (9.5s max for expanded 2.2km area)
     setTimeout(() => {
       if (!hasResolved) {
         useProceduralFallback();
       }
-    }, 7000);
+    }, 9500);
   });
 }

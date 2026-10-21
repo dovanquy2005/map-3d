@@ -3,12 +3,172 @@ import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUti
 import earcut from 'earcut';
 import { ParkPolygonItem, RoadPolygonItem, WaterPolygonItem } from '../types/gis';
 import { SAIGON_PALETTES } from '../config/endpoints';
+import { TextureGenerator } from './TextureGenerator';
 
 export class EnvironmentBuilder {
   /**
+   * Builds Continuous Paved Road Ribbons from line paths + Sidewalk curbs flanking both sides
+   */
+  public static buildRoads(roads: RoadPolygonItem[]): THREE.Group {
+    const group = new THREE.Group();
+    group.name = 'roads_group';
+
+    const asphaltGeometries: THREE.BufferGeometry[] = [];
+    const sidewalkGeometries: THREE.BufferGeometry[] = [];
+
+    const asphaltColor = new THREE.Color(SAIGON_PALETTES.mainAsphalt);
+    const alleyColor = new THREE.Color(SAIGON_PALETTES.alleyPavement);
+    const sidewalkColor = new THREE.Color(SAIGON_PALETTES.sidewalkConcrete);
+
+    for (const road of roads) {
+      // 1. Path-based Continuous Road Ribbon (No z-fighting, perfectly smooth)
+      if (road.path && road.path.length >= 2) {
+        const path = road.path;
+        const width = Math.max(2.8, road.width);
+        const halfW = width / 2;
+        const sidewalkW = road.isAlley ? 0.8 : 2.2;
+        const col = road.isAlley ? alleyColor : asphaltColor;
+
+        const asphaltPos: number[] = [];
+        const asphaltNorm: number[] = [];
+        const asphaltCol: number[] = [];
+        const asphaltUV: number[] = [];
+
+        const swPos: number[] = [];
+        const swNorm: number[] = [];
+        const swCol: number[] = [];
+
+        let cumDist = 0;
+
+        for (let i = 0; i < path.length - 1; i++) {
+          const p1 = path[i];
+          const p2 = path[i + 1];
+
+          const dx = p2.x - p1.x;
+          const dz = p2.z - p1.z;
+          const segLen = Math.hypot(dx, dz);
+          if (segLen < 0.1) continue;
+
+          // Normal perpendicular to road direction in X-Z plane
+          const nx = -dz / segLen;
+          const nz = dx / segLen;
+
+          const l1 = [p1.x + nx * halfW, 0.08, p1.z + nz * halfW];
+          const r1 = [p1.x - nx * halfW, 0.08, p1.z - nz * halfW];
+          const l2 = [p2.x + nx * halfW, 0.08, p2.z + nz * halfW];
+          const r2 = [p2.x - nx * halfW, 0.08, p2.z - nz * halfW];
+
+          const d1 = cumDist;
+          const d2 = cumDist + segLen;
+          cumDist = d2;
+
+          // Road Asphalt Quad (l1, r1, r2, l2)
+          asphaltPos.push(...l1, ...r1, ...r2);
+          asphaltPos.push(...l1, ...r2, ...l2);
+
+          for (let k = 0; k < 6; k++) {
+            asphaltNorm.push(0, 1, 0);
+            asphaltCol.push(col.r, col.g, col.b);
+          }
+
+          // UV mapping: U from 0 to 1 across road width, V along road distance
+          asphaltUV.push(0, d1 * 0.08,  1, d1 * 0.08,  1, d2 * 0.08);
+          asphaltUV.push(0, d1 * 0.08,  1, d2 * 0.08,  0, d2 * 0.08);
+
+          // Raised Sidewalk Curbs flanking the road (y = 0.12m)
+          const swLeft1 = [p1.x + nx * (halfW + sidewalkW), 0.12, p1.z + nz * (halfW + sidewalkW)];
+          const swLeft2 = [p2.x + nx * (halfW + sidewalkW), 0.12, p2.z + nz * (halfW + sidewalkW)];
+          const swRight1 = [p1.x - nx * (halfW + sidewalkW), 0.12, p1.z - nz * (halfW + sidewalkW)];
+          const swRight2 = [p2.x - nx * (halfW + sidewalkW), 0.12, p2.z - nz * (halfW + sidewalkW)];
+
+          // Left Sidewalk Ribbon
+          swPos.push(...swLeft1, ...l1, ...l2);
+          swPos.push(...swLeft1, ...l2, ...swLeft2);
+
+          // Right Sidewalk Ribbon
+          swPos.push(...r1, ...swRight1, ...swRight2);
+          swPos.push(...r1, ...swRight2, ...r2);
+
+          for (let k = 0; k < 12; k++) {
+            swNorm.push(0, 1, 0);
+            swCol.push(sidewalkColor.r, sidewalkColor.g, sidewalkColor.b);
+          }
+        }
+
+        if (asphaltPos.length > 0) {
+          const aGeo = new THREE.BufferGeometry();
+          aGeo.setAttribute('position', new THREE.Float32BufferAttribute(asphaltPos, 3));
+          aGeo.setAttribute('normal', new THREE.Float32BufferAttribute(asphaltNorm, 3));
+          aGeo.setAttribute('color', new THREE.Float32BufferAttribute(asphaltCol, 3));
+          aGeo.setAttribute('uv', new THREE.Float32BufferAttribute(asphaltUV, 2));
+          asphaltGeometries.push(aGeo);
+        }
+
+        if (swPos.length > 0) {
+          const sGeo = new THREE.BufferGeometry();
+          sGeo.setAttribute('position', new THREE.Float32BufferAttribute(swPos, 3));
+          sGeo.setAttribute('normal', new THREE.Float32BufferAttribute(swNorm, 3));
+          sGeo.setAttribute('color', new THREE.Float32BufferAttribute(swCol, 3));
+          sidewalkGeometries.push(sGeo);
+        }
+      }
+      // 2. Polygon-based fallback
+      else if (road.rings && road.rings.length > 0) {
+        const col = road.isAlley ? alleyColor : asphaltColor;
+        const geo = this.triangulatePolygon(road.rings, 0.08, col);
+        if (geo) asphaltGeometries.push(geo);
+      }
+    }
+
+    // Merge Asphalt Mesh with Road Texture (Centerlines & Shoulders)
+    if (asphaltGeometries.length > 0) {
+      const mergedAsphalt = BufferGeometryUtils.mergeGeometries(asphaltGeometries, false);
+      for (const g of asphaltGeometries) g.dispose();
+
+      if (mergedAsphalt) {
+        const roadTexture = TextureGenerator.getRoadTexture();
+        const roadMaterial = new THREE.MeshStandardMaterial({
+          map: roadTexture,
+          vertexColors: true,
+          roughness: 0.82,
+          metalness: 0.08,
+          side: THREE.DoubleSide,
+        });
+
+        const asphaltMesh = new THREE.Mesh(mergedAsphalt, roadMaterial);
+        asphaltMesh.name = 'roads_asphalt_merged';
+        asphaltMesh.receiveShadow = true;
+        group.add(asphaltMesh);
+      }
+    }
+
+    // Merge Raised Sidewalk Curbs
+    if (sidewalkGeometries.length > 0) {
+      const mergedSidewalks = BufferGeometryUtils.mergeGeometries(sidewalkGeometries, false);
+      for (const g of sidewalkGeometries) g.dispose();
+
+      if (mergedSidewalks) {
+        const sidewalkMaterial = new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          roughness: 0.92,
+          metalness: 0.05,
+          side: THREE.DoubleSide,
+        });
+
+        const sidewalkMesh = new THREE.Mesh(mergedSidewalks, sidewalkMaterial);
+        sidewalkMesh.name = 'roads_sidewalks_merged';
+        sidewalkMesh.receiveShadow = true;
+        group.add(sidewalkMesh);
+      }
+    }
+
+    return group;
+  }
+
+  /**
    * Triangulates a polygon into a flat 3D surface at height yOffset with guaranteed UPWARD normal (+Y)
    */
-  private static triangulatePolygon(
+  public static triangulatePolygon(
     rings: { x: number; z: number }[][],
     yOffset: number,
     color: THREE.Color
@@ -16,7 +176,6 @@ export class EnvironmentBuilder {
     const rawOuter = rings[0];
     if (!rawOuter || rawOuter.length < 3) return null;
 
-    // Strip duplicate closing vertex if present
     const isClosed =
       rawOuter.length > 3 &&
       Math.abs(rawOuter[0].x - rawOuter[rawOuter.length - 1].x) < 0.001 &&
@@ -53,13 +212,13 @@ export class EnvironmentBuilder {
     const positions: number[] = [];
     const normals: number[] = [];
     const colors: number[] = [];
+    const uvs: number[] = [];
 
     for (let i = 0; i < indices.length; i += 3) {
       let p0 = { x: flatCoords[indices[i] * 2], z: flatCoords[indices[i] * 2 + 1] };
       let p1 = { x: flatCoords[indices[i + 1] * 2], z: flatCoords[indices[i + 1] * 2 + 1] };
       let p2 = { x: flatCoords[indices[i + 2] * 2], z: flatCoords[indices[i + 2] * 2 + 1] };
 
-      // Vector Cross Product in X-Z plane to guarantee normal points straight UP (+Y)
       const vAx = p1.x - p0.x;
       const vAz = p1.z - p0.z;
       const vBx = p2.x - p0.x;
@@ -81,52 +240,17 @@ export class EnvironmentBuilder {
       colors.push(color.r, color.g, color.b);
       colors.push(color.r, color.g, color.b);
       colors.push(color.r, color.g, color.b);
+
+      uvs.push(0, 0, 1, 0, 0.5, 1);
     }
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
 
     return geometry;
-  }
-
-  /**
-   * Builds merged road meshes (Dark asphalt main roads & Concrete Saigon alleys)
-   * With DoubleSide material so road surfaces are ALWAYS 100% visible
-   */
-  public static buildRoads(roads: RoadPolygonItem[]): THREE.Mesh | null {
-    if (roads.length === 0) return null;
-
-    const geometries: THREE.BufferGeometry[] = [];
-    const asphaltColor = new THREE.Color(SAIGON_PALETTES.mainAsphalt); // Dark charcoal asphalt
-    const alleyColor = new THREE.Color(SAIGON_PALETTES.alleyPavement); // Concrete grey alley
-
-    for (const road of roads) {
-      const col = road.isAlley ? alleyColor : asphaltColor;
-      // Roads raised to y = 0.12m to eliminate z-fighting with ground plane
-      const geo = this.triangulatePolygon(road.rings, 0.12, col);
-      if (geo) geometries.push(geo);
-    }
-
-    if (geometries.length === 0) return null;
-
-    const merged = BufferGeometryUtils.mergeGeometries(geometries, false);
-    for (const g of geometries) g.dispose();
-
-    if (!merged) return null;
-
-    const material = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.88,
-      metalness: 0.05,
-      side: THREE.DoubleSide, // Guarantees roads are never backface culled!
-    });
-
-    const mesh = new THREE.Mesh(merged, material);
-    mesh.name = 'roads_merged';
-    mesh.receiveShadow = true;
-    return mesh;
   }
 
   /**
@@ -139,7 +263,7 @@ export class EnvironmentBuilder {
     const waterColor = new THREE.Color(SAIGON_PALETTES.tropicalWater);
 
     for (const water of waterList) {
-      const geo = this.triangulatePolygon(water.rings, 0.05, waterColor);
+      const geo = this.triangulatePolygon(water.rings, 0.04, waterColor);
       if (geo) geometries.push(geo);
     }
 
@@ -152,11 +276,11 @@ export class EnvironmentBuilder {
 
     const material = new THREE.MeshStandardMaterial({
       color: 0x0284c7,
-      roughness: 0.12,
-      metalness: 0.45,
+      roughness: 0.1,
+      metalness: 0.4,
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.94,
+      opacity: 0.95,
     });
 
     const mesh = new THREE.Mesh(merged, material);
@@ -166,39 +290,17 @@ export class EnvironmentBuilder {
   }
 
   /**
-   * Builds merged parks & green landuse with scattered low-poly tropical trees
+   * Builds merged parks & green landuse
    */
-  public static buildParks(parks: ParkPolygonItem[]): { parkMesh: THREE.Mesh | null; treeMesh: THREE.Mesh | null } {
-    if (parks.length === 0) return { parkMesh: null, treeMesh: null };
+  public static buildParks(parks: ParkPolygonItem[]): { parkMesh: THREE.Mesh | null } {
+    if (parks.length === 0) return { parkMesh: null };
 
     const parkGeometries: THREE.BufferGeometry[] = [];
     const parkColor = new THREE.Color(SAIGON_PALETTES.parkGreen);
-    const treePositions: { x: number; z: number }[] = [];
 
     for (const park of parks) {
-      const geo = this.triangulatePolygon(park.rings, 0.08, parkColor);
-      if (geo) {
-        parkGeometries.push(geo);
-
-        const outer = park.rings[0];
-        if (outer && outer.length >= 3) {
-          let cx = 0;
-          let cz = 0;
-          for (const pt of outer) {
-            cx += pt.x;
-            cz += pt.z;
-          }
-          cx /= outer.length;
-          cz /= outer.length;
-
-          // Scatter tropical trees in park
-          treePositions.push({ x: cx, z: cz });
-          treePositions.push({ x: cx + 15, z: cz + 10 });
-          treePositions.push({ x: cx - 12, z: cz - 14 });
-          treePositions.push({ x: cx + 8, z: cz - 18 });
-          treePositions.push({ x: cx - 18, z: cz + 12 });
-        }
-      }
+      const geo = this.triangulatePolygon(park.rings, 0.05, parkColor);
+      if (geo) parkGeometries.push(geo);
     }
 
     let parkMesh: THREE.Mesh | null = null;
@@ -208,7 +310,7 @@ export class EnvironmentBuilder {
 
       if (mergedParks) {
         const material = new THREE.MeshStandardMaterial({
-          color: 0x15803d,
+          color: 0x4ade80, // Fresh vibrant green
           roughness: 0.9,
           metalness: 0.05,
           side: THREE.DoubleSide,
@@ -219,51 +321,6 @@ export class EnvironmentBuilder {
       }
     }
 
-    // Low-poly stylized tropical trees
-    let treeMesh: THREE.Mesh | null = null;
-    if (treePositions.length > 0) {
-      const treeGeometries: THREE.BufferGeometry[] = [];
-      const trunkColor = new THREE.Color(0x78350f);
-      const canopyColor = new THREE.Color(0x22c55e);
-
-      for (const pos of treePositions) {
-        const trunkGeo = new THREE.CylinderGeometry(0.35, 0.5, 3.0, 6);
-        trunkGeo.translate(pos.x, 1.5, pos.z);
-        const trunkColors: number[] = [];
-        for (let i = 0; i < trunkGeo.attributes.position.count; i++) {
-          trunkColors.push(trunkColor.r, trunkColor.g, trunkColor.b);
-        }
-        trunkGeo.setAttribute('color', new THREE.Float32BufferAttribute(trunkColors, 3));
-        treeGeometries.push(trunkGeo);
-
-        const canopyGeo = new THREE.ConeGeometry(2.5, 4.5, 7);
-        canopyGeo.translate(pos.x, 4.5, pos.z);
-        const canopyColors: number[] = [];
-        for (let i = 0; i < canopyGeo.attributes.position.count; i++) {
-          canopyColors.push(canopyColor.r, canopyColor.g, canopyColor.b);
-        }
-        canopyGeo.setAttribute('color', new THREE.Float32BufferAttribute(canopyColors, 3));
-        treeGeometries.push(canopyGeo);
-      }
-
-      if (treeGeometries.length > 0) {
-        const mergedTrees = BufferGeometryUtils.mergeGeometries(treeGeometries, false);
-        for (const g of treeGeometries) g.dispose();
-
-        if (mergedTrees) {
-          const treeMat = new THREE.MeshStandardMaterial({
-            vertexColors: true,
-            roughness: 0.8,
-            metalness: 0.1,
-          });
-          treeMesh = new THREE.Mesh(mergedTrees, treeMat);
-          treeMesh.name = 'trees_merged';
-          treeMesh.castShadow = true;
-          treeMesh.receiveShadow = true;
-        }
-      }
-    }
-
-    return { parkMesh, treeMesh };
+    return { parkMesh };
   }
 }

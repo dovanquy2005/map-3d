@@ -153,9 +153,21 @@ export function performSpatialFusion(
           // Skip buffer error
         }
 
-        // Build Road Network Graph from LineString
+        // Build Continuous Road Ribbons & Graph from LineString
         if (geom.type === 'LineString') {
           const coords = geom.coordinates as [number, number][];
+          const path = coords.map(([lon, lat]) => projection.project(lon, lat));
+
+          roadPolygonItems.push({
+            id: `road_line_${props.id || Math.random()}`,
+            name: props.name || (config.isAlley ? 'Hẻm Sài Gòn' : 'Đường đô thị'),
+            highway: highwayType,
+            isAlley: config.isAlley,
+            width: config.width,
+            rings: [],
+            path,
+          });
+
           let prevNodeId: string | null = null;
 
           for (let i = 0; i < coords.length; i++) {
@@ -300,17 +312,20 @@ export function performSpatialFusion(
     }
 
     // Colors
+    // Colors - Clean, vibrant, cheerful Saigon urban architectural palette
     let color = SAIGON_PALETTES.cream;
     if (isHistoric || isWorship) {
-      color = SAIGON_PALETTES.templeGold;
+      color = SAIGON_PALETTES.historicRed;
     } else if (height > 35) {
-      color = SAIGON_PALETTES.glassTowerCyan;
+      color = SAIGON_PALETTES.towerNavy;
     } else {
       const palList = [
-        SAIGON_PALETTES.cream,
         SAIGON_PALETTES.yellowOchre,
-        SAIGON_PALETTES.concreteGrey,
-        SAIGON_PALETTES.concreteDark,
+        SAIGON_PALETTES.cream,
+        SAIGON_PALETTES.warmOchre,
+        SAIGON_PALETTES.salmonCoral,
+        SAIGON_PALETTES.mintGreen,
+        SAIGON_PALETTES.pearlWhite,
       ];
       const h = hashString(props.name || `bld_${height}`);
       color = palList[h % palList.length];
@@ -420,9 +435,12 @@ export function performSpatialFusion(
       const height = props.height && props.height > 4 ? props.height : levels * 3.5;
 
       const palList = [
-        SAIGON_PALETTES.cream,
         SAIGON_PALETTES.yellowOchre,
-        SAIGON_PALETTES.concreteGrey,
+        SAIGON_PALETTES.cream,
+        SAIGON_PALETTES.warmOchre,
+        SAIGON_PALETTES.salmonCoral,
+        SAIGON_PALETTES.mintGreen,
+        SAIGON_PALETTES.pearlWhite,
       ];
       const color = palList[hash % palList.length];
 

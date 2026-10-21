@@ -49,6 +49,7 @@ export interface RoadPolygonItem {
   isAlley: boolean;
   width: number;
   rings: MetricPoint[][];
+  path?: MetricPoint[];
 }
 
 export interface WaterPolygonItem {

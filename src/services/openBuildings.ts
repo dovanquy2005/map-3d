@@ -87,12 +87,19 @@ export async function fetchVidaOpenBuildings(
 
     let tilesLoaded = 0;
 
-    for (const { z, x, y } of tileCoords) {
-      const tileResponse = await fetchWithTimeout(z, x, y);
-      if (!tileResponse || !tileResponse.data) continue;
+    // Fetch all tiles in parallel via HTTP Byte-Range requests
+    const tileResults = await Promise.all(
+      tileCoords.map(async ({ z, x, y }) => {
+        const resp = await fetchWithTimeout(z, x, y);
+        return { z, x, y, resp };
+      })
+    );
+
+    for (const { z, x, y, resp } of tileResults) {
+      if (!resp || !resp.data) continue;
 
       tilesLoaded++;
-      const pbf = new PbfClass(new Uint8Array(tileResponse.data));
+      const pbf = new PbfClass(new Uint8Array(resp.data));
       const vt = new VectorTile(pbf);
 
       // Check all building layers

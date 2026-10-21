@@ -12,11 +12,13 @@ import { SceneManager } from './world/SceneManager';
 import { ShipperController } from './world/ShipperController';
 import { CityVegetation } from './world/CityVegetation';
 import { CityTraffic } from './world/CityTraffic';
+import { TrafficSignalSystem } from './world/TrafficSignalSystem';
 
 class SaigonShipperApp {
   private sceneManager!: SceneManager;
   private shipperController!: ShipperController;
   private cityTraffic!: CityTraffic;
+  private trafficSignalSystem!: TrafficSignalSystem;
 
   // Geographic state
   private currentLat = DEFAULT_COORDS.lat;
@@ -92,12 +94,16 @@ class SaigonShipperApp {
     this.shipperController = new ShipperController(this.sceneManager.camera);
     this.sceneManager.scene.add(this.shipperController.bikeGroup);
 
+    this.trafficSignalSystem = new TrafficSignalSystem();
+    this.sceneManager.scene.add(this.trafficSignalSystem.group);
+
     this.cityTraffic = new CityTraffic();
     this.sceneManager.scene.add(this.cityTraffic.group);
 
     // Register physics/kinematics update loop
     this.sceneManager.registerUpdateHook((dt) => {
       this.shipperController.update(dt);
+      this.trafficSignalSystem.update(dt);
       this.cityTraffic.update(dt);
     });
 
@@ -126,7 +132,7 @@ class SaigonShipperApp {
     // CartoDB Dark Matter tile layer
     this.leafletMap = L.map('leaflet-minimap', {
       center: [this.currentLat, this.currentLon],
-      zoom: 15, // Expanded 5x view
+      zoom: 14, // Expanded 2.2km metropolis view
       zoomControl: false,
       attributionControl: false,
     });
@@ -526,8 +532,12 @@ class SaigonShipperApp {
       const vegetationGroup = CityVegetation.createVegetation(treePositions);
       this.sceneManager.scene.add(vegetationGroup);
 
-      // 5F. Autonomous Moving Traffic Simulation (Cars & Motorbikes Obeying Traffic Lanes)
-      this.cityTraffic.initSimulation(fusionResult.roadGraph);
+      // 5F. Authentic Intersection Traffic Signals (Cột đèn tín hiệu ngã ba / ngã tư)
+      this.trafficSignalSystem.initSignals(fusionResult.roadGraph);
+      this.sceneManager.scene.add(this.trafficSignalSystem.group);
+
+      // 5G. Autonomous Moving Traffic Simulation Obeying Lanes & Signals (3,000 xe)
+      this.cityTraffic.initSimulation(fusionResult.roadGraph, this.trafficSignalSystem);
       this.sceneManager.scene.add(this.cityTraffic.group);
 
       // Step 6: Initialize Shipper scooter environment
@@ -535,7 +545,7 @@ class SaigonShipperApp {
 
       const totalTime = (performance.now() - startTime) / 1000;
       this.appendTelemetryLog(
-        `[Đô thị Sài Gòn 3D] ~1.0 km² • ${fusionResult.buildings.length} tòa nhà chi tiết • ${treePositions.length} cây xanh • ${fusionResult.roads.length} tuyến đường • Dựng xong trong ${totalTime.toFixed(1)}s (Nghiêng 53°)`,
+        `[Đô thị Sài Gòn 3D] ~4.8 km² • ${fusionResult.buildings.length} tòa nhà • ${treePositions.length} cây xanh • Hệ thống cột đèn tín hiệu chuẩn ngã ba/ngã tư • 3.000 xe tuân thủ làn đường & đèn đỏ • Dựng xong trong ${totalTime.toFixed(1)}s (Nghiêng 53°)`,
         'success'
       );
 

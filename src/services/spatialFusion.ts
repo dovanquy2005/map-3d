@@ -325,6 +325,7 @@ export function performSpatialFusion(
                 highway: highwayType,
                 name: props.name || (isBridge ? 'Cầu' : config.isAlley ? 'Hẻm Sài Gòn' : 'Đường'),
                 isAlley: config.isAlley,
+                width: config.width,
                 isBridge,
                 elevation: ((prevNode.y || baseY) + elevY) / 2,
               });
@@ -414,11 +415,20 @@ export function performSpatialFusion(
     if (isHistoric || isWorship) {
       color = SAIGON_PALETTES.colonialYellow;
     } else if (height > 35) {
-      color = SAIGON_PALETTES.towerNavy;
+      const towerPals = [
+        SAIGON_PALETTES.towerSlate,
+        SAIGON_PALETTES.towerNavy,
+        SAIGON_PALETTES.towerSteel,
+        SAIGON_PALETTES.towerGlassBlue,
+        SAIGON_PALETTES.concreteGrey,
+      ];
+      color = towerPals[hashString(props.name || 'osm_tower') % towerPals.length];
     } else {
       const palList = [
         SAIGON_PALETTES.yellowOchre,
+        SAIGON_PALETTES.colonialYellow,
         SAIGON_PALETTES.warmGold,
+        SAIGON_PALETTES.warmOchre,
         SAIGON_PALETTES.vanillaIvory,
         SAIGON_PALETTES.cream,
         SAIGON_PALETTES.pastelTurquoise,
@@ -462,8 +472,8 @@ export function performSpatialFusion(
   for (const vidaFeat of vidaBuildings) {
     const props = vidaFeat.properties || {};
 
-    // Condition 1: Confidence >= 0.7
-    if (props.confidence !== undefined && props.confidence < 0.7) {
+    // Condition 1: High-recall confidence threshold (>= 0.60 captures dense Vietnamese tube houses)
+    if (props.confidence !== undefined && props.confidence < 0.60) {
       vidaFilteredByConfidence++;
       continue;
     }
@@ -477,13 +487,14 @@ export function performSpatialFusion(
 
     const [minX, minY, maxX, maxY] = bbox;
     const searchBox = { minX, minY, maxX, maxY };
+    const centerPt = turf.point([(minX + maxX) / 2, (minY + maxY) / 2]);
 
-    // Condition 2: Overlap with OSM Building
+    // Condition 2: Overlap with OSM Building (Only filter if centroid is inside OSM building, keeps adjacent row houses!)
     const osmCandidates = osmBuildingTree.search(searchBox);
     let collidesWithOsm = false;
     for (const cand of osmCandidates) {
       try {
-        if (turf.booleanIntersects(vidaFeat as any, cand.feature)) {
+        if (turf.booleanPointInPolygon(centerPt, cand.feature)) {
           collidesWithOsm = true;
           break;
         }
@@ -494,12 +505,12 @@ export function performSpatialFusion(
       continue;
     }
 
-    // Condition 3: Overlap with Buffered Roads
+    // Condition 3: Overlap with Road (Centroid check preserves all streetfront and alley tube houses!)
     const roadCandidates = roadTree.search(searchBox);
     let collidesWithRoad = false;
     for (const cand of roadCandidates) {
       try {
-        if (turf.booleanIntersects(vidaFeat as any, cand.feature)) {
+        if (turf.booleanPointInPolygon(centerPt, cand.feature)) {
           collidesWithRoad = true;
           break;
         }
@@ -510,12 +521,12 @@ export function performSpatialFusion(
       continue;
     }
 
-    // Condition 4: Overlap with Water
+    // Condition 4: Overlap with Water (Centroid check prevents canal bank houses from being lost)
     const waterCandidates = waterTree.search(searchBox);
     let collidesWithWater = false;
     for (const cand of waterCandidates) {
       try {
-        if (turf.booleanIntersects(vidaFeat as any, cand.feature)) {
+        if (turf.booleanPointInPolygon(centerPt, cand.feature)) {
           collidesWithWater = true;
           break;
         }
@@ -539,23 +550,36 @@ export function performSpatialFusion(
       const levels = 2 + (hash % 4); // 2 to 5 floors
       const height = props.height && props.height > 4 ? props.height : levels * 3.5;
 
-      const palList = [
-        SAIGON_PALETTES.yellowOchre,
-        SAIGON_PALETTES.warmGold,
-        SAIGON_PALETTES.vanillaIvory,
-        SAIGON_PALETTES.cream,
-        SAIGON_PALETTES.pastelTurquoise,
-        SAIGON_PALETTES.mintGreen,
-        SAIGON_PALETTES.freshSage,
-        SAIGON_PALETTES.salmonCoral,
-        SAIGON_PALETTES.salmonPeach,
-        SAIGON_PALETTES.warmCoral,
-        SAIGON_PALETTES.skyBlue,
-        SAIGON_PALETTES.softPeriwinkle,
-        SAIGON_PALETTES.pearlWhite,
-        SAIGON_PALETTES.concreteGrey,
-      ];
-      const color = palList[hash % palList.length];
+      let color: number;
+      if (height > 35) {
+        const towerPals = [
+          SAIGON_PALETTES.towerSlate,
+          SAIGON_PALETTES.towerNavy,
+          SAIGON_PALETTES.towerSteel,
+          SAIGON_PALETTES.towerGlassBlue,
+        ];
+        color = towerPals[hash % towerPals.length];
+      } else {
+        const palList = [
+          SAIGON_PALETTES.yellowOchre,
+          SAIGON_PALETTES.colonialYellow,
+          SAIGON_PALETTES.warmGold,
+          SAIGON_PALETTES.warmOchre,
+          SAIGON_PALETTES.vanillaIvory,
+          SAIGON_PALETTES.cream,
+          SAIGON_PALETTES.pastelTurquoise,
+          SAIGON_PALETTES.mintGreen,
+          SAIGON_PALETTES.freshSage,
+          SAIGON_PALETTES.salmonCoral,
+          SAIGON_PALETTES.salmonPeach,
+          SAIGON_PALETTES.warmCoral,
+          SAIGON_PALETTES.skyBlue,
+          SAIGON_PALETTES.softPeriwinkle,
+          SAIGON_PALETTES.pearlWhite,
+          SAIGON_PALETTES.concreteGrey,
+        ];
+        color = palList[hash % palList.length];
+      }
 
       finalBuildingItems.push({
         id: `vida_bld_${props.id || vidaAccepted}`,

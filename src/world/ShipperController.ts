@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BuildingItem, MetricPoint, RoadNetworkGraph } from '../types/gis';
+import { VehicleModels } from './VehicleModels';
 
 export interface ShipperStatus {
   speedKmh: number;
@@ -11,8 +12,10 @@ export interface ShipperStatus {
 export class ShipperController {
   public bikeGroup: THREE.Group;
   private headlight: THREE.SpotLight;
-  private frontWheel: THREE.Mesh;
-  private rearWheel: THREE.Mesh;
+  private frontWheel: THREE.Object3D;
+  private rearWheel: THREE.Object3D;
+  private steeringFork: THREE.Group;
+  private brakeLightMat: THREE.MeshStandardMaterial;
   private bikeBody: THREE.Group;
 
   private camera: THREE.PerspectiveCamera;
@@ -50,128 +53,20 @@ export class ShipperController {
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
     this.bikeGroup = new THREE.Group();
-    this.bikeBody = new THREE.Group();
-    this.bikeGroup.add(this.bikeBody);
 
-    // Build stylized Vietnam delivery motorbike
-    const { frontWheel, rearWheel, headlight } = this.buildMotorbikeMesh();
-    this.frontWheel = frontWheel;
-    this.rearWheel = rearWheel;
-    this.headlight = headlight;
+    // Build hyper-realistic Vietnam delivery motorbike & shipper rider
+    const pack = VehicleModels.createPlayerMotorbike();
+    this.bikeBody = pack.bikeBody;
+    this.frontWheel = pack.frontWheel;
+    this.rearWheel = pack.rearWheel;
+    this.steeringFork = pack.steeringFork;
+    this.headlight = pack.headlight;
+    this.brakeLightMat = pack.brakeLightMat;
+
+    this.bikeGroup.add(this.bikeBody);
 
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
-  }
-
-  private buildMotorbikeMesh(): {
-    frontWheel: THREE.Mesh;
-    rearWheel: THREE.Mesh;
-    headlight: THREE.SpotLight;
-  } {
-    // 1. Frame / Chassis (Scooter body - Vietnam iconic red/teal)
-    const chassisGeo = new THREE.BoxGeometry(0.55, 0.45, 1.4);
-    const chassisMat = new THREE.MeshStandardMaterial({
-      color: 0xef4444, // Saigon delivery red
-      metalness: 0.6,
-      roughness: 0.3,
-    });
-    const chassis = new THREE.Mesh(chassisGeo, chassisMat);
-    chassis.position.set(0, 0.5, 0);
-    chassis.castShadow = true;
-    this.bikeBody.add(chassis);
-
-    // 2. Footrest / Floorboard
-    const floorGeo = new THREE.BoxGeometry(0.6, 0.1, 0.9);
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.position.set(0, 0.28, 0.1);
-    this.bikeBody.add(floor);
-
-    // 3. Scooter Seat
-    const seatGeo = new THREE.BoxGeometry(0.48, 0.18, 0.7);
-    const seatMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.8 });
-    const seat = new THREE.Mesh(seatGeo, seatMat);
-    seat.position.set(0, 0.78, -0.15);
-    seat.castShadow = true;
-    this.bikeBody.add(seat);
-
-    // 4. Wheels (Front & Rear)
-    const wheelGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.18, 16);
-    wheelGeo.rotateZ(Math.PI / 2);
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.9 });
-
-    const frontWheel = new THREE.Mesh(wheelGeo, tireMat);
-    frontWheel.position.set(0, 0.3, 0.85);
-    frontWheel.castShadow = true;
-    this.bikeBody.add(frontWheel);
-
-    const rearWheel = new THREE.Mesh(wheelGeo, tireMat);
-    rearWheel.position.set(0, 0.3, -0.65);
-    rearWheel.castShadow = true;
-    this.bikeBody.add(rearWheel);
-
-    // 5. Handlebars & Dashboard
-    const handlebarGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.8, 8);
-    handlebarGeo.rotateZ(Math.PI / 2);
-    const barMat = new THREE.MeshStandardMaterial({ color: 0xd4d4d8, metalness: 0.8 });
-    const handlebar = new THREE.Mesh(handlebarGeo, barMat);
-    handlebar.position.set(0, 1.05, 0.65);
-    this.bikeBody.add(handlebar);
-
-    // 6. Iconic Insulated Food Delivery Box (Backpack Carrier)
-    const boxGeo = new THREE.BoxGeometry(0.65, 0.65, 0.65);
-    const boxMat = new THREE.MeshStandardMaterial({
-      color: 0x10b981, // Vibrant Saigon Shipper emerald green
-      roughness: 0.4,
-    });
-    const deliveryBox = new THREE.Mesh(boxGeo, boxMat);
-    deliveryBox.position.set(0, 0.95, -0.7);
-    deliveryBox.castShadow = true;
-    this.bikeBody.add(deliveryBox);
-
-    // Box top reflective strip
-    const stripGeo = new THREE.BoxGeometry(0.66, 0.1, 0.66);
-    const stripMat = new THREE.MeshStandardMaterial({
-      color: 0xfacc15,
-      emissive: 0x854d0e,
-      roughness: 0.2,
-    });
-    const strip = new THREE.Mesh(stripGeo, stripMat);
-    strip.position.set(0, 0.95, -0.7);
-    this.bikeBody.add(strip);
-
-    // 7. Stylized Driver Helmet
-    const helmetGeo = new THREE.SphereGeometry(0.24, 14, 14);
-    const helmetMat = new THREE.MeshStandardMaterial({
-      color: 0xfacc15, // Bright yellow safety helmet
-      roughness: 0.3,
-    });
-    const helmet = new THREE.Mesh(helmetGeo, helmetMat);
-    helmet.position.set(0, 1.45, 0.0);
-    helmet.castShadow = true;
-    this.bikeBody.add(helmet);
-
-    // 8. Front Headlight & Real SpotLight
-    const headlightMeshGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.1, 12);
-    headlightMeshGeo.rotateX(Math.PI / 2);
-    const headlightMeshMat = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      emissive: 0xffffee,
-      emissiveIntensity: 1.5,
-    });
-    const headlightMesh = new THREE.Mesh(headlightMeshGeo, headlightMeshMat);
-    headlightMesh.position.set(0, 0.85, 0.95);
-    this.bikeBody.add(headlightMesh);
-
-    const headlight = new THREE.SpotLight(0xfff8db, 4.0, 45, Math.PI / 5, 0.4, 1.2);
-    headlight.position.set(0, 0.85, 0.95);
-    const targetObj = new THREE.Object3D();
-    targetObj.position.set(0, 0.1, 15);
-    this.bikeBody.add(targetObj);
-    headlight.target = targetObj;
-    this.bikeBody.add(headlight);
-
-    return { frontWheel, rearWheel, headlight };
   }
 
   public setEnvironment(buildings: BuildingItem[], roadGraph: RoadNetworkGraph): void {
@@ -514,6 +409,17 @@ export class ShipperController {
     const wheelRot = (this.velocity / 0.3) * deltaTime;
     this.frontWheel.rotation.x += wheelRot;
     this.rearWheel.rotation.x += wheelRot;
+
+    // Turn handlebars and front fork with countersteer/steer input
+    if (this.steeringFork) {
+      this.steeringFork.rotation.y = -this.steerAngle * 0.45;
+    }
+
+    // Dynamic brake light glow (intensifies when braking or reversing)
+    if (this.brakeLightMat) {
+      const isBraking = this.keys.brake || (this.keys.backward && this.velocity > 0);
+      this.brakeLightMat.emissiveIntensity = isBraking ? 3.8 : 1.2;
+    }
 
     // 4. Update 3rd-Person Follow Camera
     this.updateCamera(deltaTime, false);

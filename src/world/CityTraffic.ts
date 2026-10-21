@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { RoadGraphEdge, RoadNetworkGraph } from '../types/gis';
 import { TrafficSignalSystem } from './TrafficSignalSystem';
+import { VehicleModels } from './VehicleModels';
 
 export interface VehiclePlacement {
   x: number;
@@ -13,7 +13,7 @@ export interface VehiclePlacement {
 
 interface SimulatedVehicle {
   id: number;
-  type: 'car' | 'scooter' | 'bus';
+  type: 'car' | 'scooter' | 'shipper' | 'bus';
   fromId: string;
   toId: string;
   nextId: string;
@@ -55,15 +55,28 @@ export class CityTraffic {
   private roadGraph: RoadNetworkGraph | null = null;
   private trafficSignals: TrafficSignalSystem | null = null;
 
-  // Active agents
+  // Active agents (1,880 dense metropolis agents: 500 cars, 900 commuters, 400 shippers, 80 buses)
   private simulatedCars: SimulatedVehicle[] = [];
   private simulatedScooters: SimulatedVehicle[] = [];
+  private simulatedShippers: SimulatedVehicle[] = [];
   private simulatedBuses: SimulatedVehicle[] = [];
 
-  // Instanced Meshes (1 draw call per vehicle class = max 3 draw calls total)
-  private instancedCars: THREE.InstancedMesh | null = null;
-  private instancedScooters: THREE.InstancedMesh | null = null;
-  private instancedBuses: THREE.InstancedMesh | null = null;
+  // O(1) Edge Fast Lookup Map (prevents 15,000,000 array scans per frame)
+  private edgeMap: Map<string, RoadGraphEdge> = new Map();
+
+  // Synchronized Instanced Meshes (Body + Details per vehicle class sharing instanceMatrix)
+  private instancedCarsBody: THREE.InstancedMesh | null = null;
+  private instancedCarsDetails: THREE.InstancedMesh | null = null;
+
+  private instancedScootersBody: THREE.InstancedMesh | null = null;
+  private instancedScootersDetails: THREE.InstancedMesh | null = null;
+
+  private instancedShippersBody: THREE.InstancedMesh | null = null;
+  private instancedShippersDetails: THREE.InstancedMesh | null = null;
+
+  private instancedBusesBody: THREE.InstancedMesh | null = null;
+  private instancedBusesDetails: THREE.InstancedMesh | null = null;
+
   private dummy: THREE.Object3D = new THREE.Object3D();
 
   constructor() {
@@ -74,13 +87,13 @@ export class CityTraffic {
   /**
    * Helper to compute authentic right-hand lane offset proportional to road width
    */
-  private getRoadLaneOffset(edge: RoadGraphEdge | undefined, vehicleType: 'car' | 'scooter' | 'bus', reverseIndex: number = 0): number {
+  private getRoadLaneOffset(edge: RoadGraphEdge | undefined, vehicleType: 'car' | 'scooter' | 'shipper' | 'bus', reverseIndex: number = 0): number {
     if (!edge) return 1.8;
     const roadWidth = edge.width || (edge.highway === 'primary' ? 14.0 : edge.highway === 'secondary' ? 9.0 : edge.isAlley ? 2.8 : 6.0);
     if (edge.isAlley) {
       return reverseIndex % 2 === 0 ? 0.35 : -0.35;
     }
-    if (vehicleType === 'scooter') {
+    if (vehicleType === 'scooter' || vehicleType === 'shipper') {
       return roadWidth * 0.36; // Outer right shoulder motorcycle lane
     }
     return roadWidth * 0.22; // Inner right automotive travel lane
@@ -101,7 +114,15 @@ export class CityTraffic {
     }
     this.simulatedCars = [];
     this.simulatedScooters = [];
+    this.simulatedShippers = [];
     this.simulatedBuses = [];
+
+    // Build O(1) Edge Lookup Map
+    this.edgeMap.clear();
+    for (const edge of roadGraph.edges) {
+      this.edgeMap.set(`${edge.fromId}_${edge.toId}`, edge);
+      this.edgeMap.set(`${edge.toId}_${edge.fromId}`, edge);
+    }
 
     // Filter valid road segments with minimum navigable length
     const validEdges = roadGraph.edges.filter((e) => {
@@ -114,74 +135,64 @@ export class CityTraffic {
     if (validEdges.length === 0) return;
 
     // =========================================================================
-    // 1. 3D LOW-POLY VEHICLE MODELS (Clean, authentic Saigon streetscape)
+    // 1. GENERATE HIGH-FIDELITY 3D VEHICLE GEOMETRIES (Cars, Scooters, Shippers, Buses)
     // =========================================================================
-    // A. Sedan & Taxi Model (Chassis, Cabin, Glass bevel)
-    const carChassis = new THREE.BoxGeometry(1.68, 0.62, 3.6);
-    carChassis.translate(0, 0.42, 0);
-    const carCabin = new THREE.BoxGeometry(1.48, 0.58, 2.0);
-    carCabin.translate(0, 0.95, -0.2);
-    const carGeo = BufferGeometryUtils.mergeGeometries([carChassis, carCabin]) || carChassis;
-    const carMat = new THREE.MeshStandardMaterial({
-      roughness: 0.35,
-      metalness: 0.4,
-    });
+    const carPack = VehicleModels.createCarModel();
+    const commuterPack = VehicleModels.createScooterModel(false);
+    const shipperPack = VehicleModels.createScooterModel(true);
+    const busPack = VehicleModels.createBusModel();
 
-    // B. Vietnam Scooter + Rider Model (Scooter, Torso, Iconic Helmet)
-    const scooterBody = new THREE.BoxGeometry(0.42, 0.4, 1.35);
-    scooterBody.translate(0, 0.35, 0);
-    const riderTorso = new THREE.BoxGeometry(0.38, 0.55, 0.38);
-    riderTorso.translate(0, 0.85, -0.15);
-    const riderHelmet = new THREE.SphereGeometry(0.22, 8, 8);
-    riderHelmet.translate(0, 1.25, -0.15);
-    const scooterGeo = BufferGeometryUtils.mergeGeometries([scooterBody, riderTorso, riderHelmet]) || scooterBody;
-    const scooterMat = new THREE.MeshStandardMaterial({
-      roughness: 0.45,
-      metalness: 0.25,
-    });
+    // High-end clearcoat automotive materials
+    const carBodyMat = new THREE.MeshStandardMaterial({ roughness: 0.28, metalness: 0.6 });
+    const carDetailsMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.35 });
 
-    // C. Iconic Saigon City Bus Model (Xe Buýt Sài Gòn - 8m bus)
-    const busChassis = new THREE.BoxGeometry(2.35, 2.15, 8.2);
-    busChassis.translate(0, 1.35, 0);
-    const busRoof = new THREE.BoxGeometry(2.25, 0.32, 7.8);
-    busRoof.translate(0, 2.55, 0);
-    const busGeo = BufferGeometryUtils.mergeGeometries([busChassis, busRoof]) || busChassis;
-    const busMat = new THREE.MeshStandardMaterial({
-      roughness: 0.4,
-      metalness: 0.2,
-    });
+    const scooterBodyMat = new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.45 });
+    const scooterDetailsMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.3 });
 
-    // Authentic Vietnamese vehicle colors
+    const shipperBodyMat = new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.45 });
+    const shipperDetailsMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, metalness: 0.3 });
+
+    const busBodyMat = new THREE.MeshStandardMaterial({ roughness: 0.3, metalness: 0.5 });
+    const busDetailsMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.3 });
+
+    // Authentic Vietnamese vehicle palettes
     const carColors = [
-      new THREE.Color(0xf8fafc), // Pearl White (VinFast / Toyota)
-      new THREE.Color(0x10b981), // Mai Linh Taxi / Grab Green
+      new THREE.Color(0xf8fafc), // VinFast / Toyota Pearl White
+      new THREE.Color(0x10b981), // Mai Linh Taxi / Green SM Emerald
       new THREE.Color(0xfacc15), // Saigon Yellow Taxi
-      new THREE.Color(0xef4444), // Crimson Red
-      new THREE.Color(0x0284c7), // Cyan Blue
-      new THREE.Color(0x1e293b), // Black VIP Sedan
-      new THREE.Color(0x94a3b8), // Silver Metallic
+      new THREE.Color(0xdc2626), // Crimson Metallic Red
+      new THREE.Color(0x0284c7), // Ocean Cyan Blue
+      new THREE.Color(0x0f172a), // Executive Gloss Black Sedan
+      new THREE.Color(0x64748b), // Titanium Metallic Silver
+      new THREE.Color(0x1e3a8a), // VinFast Deep Navy
     ];
 
-    const scooterColors = [
-      new THREE.Color(0x10b981), // Grab Driver Green
-      new THREE.Color(0xfacc15), // Be Yellow Driver
-      new THREE.Color(0xef4444), // ShopeeFood Red
-      new THREE.Color(0x1e293b), // Commuter Black
-      new THREE.Color(0x38bdf8), // Sky Blue
-      new THREE.Color(0xf8fafc), // White Scooter
+    const commuterColors = [
+      new THREE.Color(0xf8fafc), // Pearl White Honda Vision/SH
+      new THREE.Color(0x1e293b), // Phantom Black AirBlade
+      new THREE.Color(0xdc2626), // Candy Red Honda Lead
+      new THREE.Color(0x0284c7), // Cyan Blue Honda Wave
+      new THREE.Color(0x64748b), // Metallic Silver Future
+      new THREE.Color(0xd97706), // Metallic Gold SH
+    ];
+
+    const shipperColors = [
+      new THREE.Color(0x10b981), // Grab Vietnam Emerald Green Driver
+      new THREE.Color(0xfacc15), // Be Vietnam Bumblebee Yellow Driver
+      new THREE.Color(0xef4444), // ShopeeFood Crimson Red Driver
+      new THREE.Color(0x059669), // Baemin / Ahamove Mint Driver
+      new THREE.Color(0x1e293b), // Lalamove Black Driver
     ];
 
     const busColors = [
-      new THREE.Color(0x15803d), // Iconic Saigon City Bus Green
-      new THREE.Color(0x16a34a), // Saigon Bus Light Green
-      new THREE.Color(0x2563eb), // Modern VinBus Electric Blue
+      new THREE.Color(0x15803d), // Iconic Saigon City Bus Emerald Green
+      new THREE.Color(0x16a34a), // Saigon Transerco Light Green
+      new THREE.Color(0x2563eb), // Modern VinBus Electric Eco Blue
+      new THREE.Color(0xf59e0b), // Airport Shuttle Bus Yellow
     ];
 
     // =========================================================================
-    // 2. SPAWN AGENTS IN BOTH DIRECTIONS (Right-hand traffic simulation)
-    // =========================================================================
-    // =========================================================================
-    // 2. SPAWN 3,000 AGENTS IN BOTH DIRECTIONS (Dense metropolis traffic)
+    // 2. SPAWN 1,880 AGENTS (500 Cars, 900 Commuters, 400 Shippers, 80 Buses)
     // =========================================================================
     const carEdges = validEdges.filter((e) => !e.isAlley);
     const scooterEdges = validEdges;
@@ -192,23 +203,48 @@ export class CityTraffic {
 
     if (carEdges.length === 0 || scooterEdges.length === 0) return;
 
-    const totalCars = 700;
-    const totalScooters = 2200;
-    const totalBuses = 100;
+    const totalCars = 500;
+    const totalScooters = 900;
+    const totalShippers = 400;
+    const totalBuses = 80;
 
-    this.instancedCars = new THREE.InstancedMesh(carGeo, carMat, totalCars);
-    this.instancedCars.castShadow = true;
-    this.instancedCars.receiveShadow = true;
+    // A. Cars Instanced Meshes (Body + Details sharing instanceMatrix buffer)
+    this.instancedCarsBody = new THREE.InstancedMesh(carPack.body, carBodyMat, totalCars);
+    this.instancedCarsDetails = new THREE.InstancedMesh(carPack.details, carDetailsMat, totalCars);
+    this.instancedCarsDetails.instanceMatrix = this.instancedCarsBody.instanceMatrix;
+    this.instancedCarsBody.castShadow = false;
+    this.instancedCarsBody.receiveShadow = true;
+    this.instancedCarsDetails.castShadow = false;
+    this.instancedCarsDetails.receiveShadow = true;
 
-    this.instancedScooters = new THREE.InstancedMesh(scooterGeo, scooterMat, totalScooters);
-    this.instancedScooters.castShadow = true;
-    this.instancedScooters.receiveShadow = true;
+    // B. Commuter Scooters Instanced Meshes
+    this.instancedScootersBody = new THREE.InstancedMesh(commuterPack.body, scooterBodyMat, totalScooters);
+    this.instancedScootersDetails = new THREE.InstancedMesh(commuterPack.details, scooterDetailsMat, totalScooters);
+    this.instancedScootersDetails.instanceMatrix = this.instancedScootersBody.instanceMatrix;
+    this.instancedScootersBody.castShadow = false;
+    this.instancedScootersBody.receiveShadow = true;
+    this.instancedScootersDetails.castShadow = false;
+    this.instancedScootersDetails.receiveShadow = true;
 
-    this.instancedBuses = new THREE.InstancedMesh(busGeo, busMat, totalBuses);
-    this.instancedBuses.castShadow = true;
-    this.instancedBuses.receiveShadow = true;
+    // C. Delivery Shippers Instanced Meshes
+    this.instancedShippersBody = new THREE.InstancedMesh(shipperPack.body, shipperBodyMat, totalShippers);
+    this.instancedShippersDetails = new THREE.InstancedMesh(shipperPack.details, shipperDetailsMat, totalShippers);
+    this.instancedShippersDetails.instanceMatrix = this.instancedShippersBody.instanceMatrix;
+    this.instancedShippersBody.castShadow = false;
+    this.instancedShippersBody.receiveShadow = true;
+    this.instancedShippersDetails.castShadow = false;
+    this.instancedShippersDetails.receiveShadow = true;
 
-    // A. Spawn 700 Cars (sedans, taxis, SUVs alternating lanes in both directions)
+    // D. City Buses Instanced Meshes
+    this.instancedBusesBody = new THREE.InstancedMesh(busPack.body, busBodyMat, totalBuses);
+    this.instancedBusesDetails = new THREE.InstancedMesh(busPack.details, busDetailsMat, totalBuses);
+    this.instancedBusesDetails.instanceMatrix = this.instancedBusesBody.instanceMatrix;
+    this.instancedBusesBody.castShadow = false;
+    this.instancedBusesBody.receiveShadow = true;
+    this.instancedBusesDetails.castShadow = false;
+    this.instancedBusesDetails.receiveShadow = true;
+
+    // 1. Spawn 500 Sedans / Taxis / Crossovers
     for (let i = 0; i < totalCars; i++) {
       const edge = carEdges[i % carEdges.length];
       const n1 = roadGraph.nodes.get(edge.fromId)!;
@@ -233,7 +269,7 @@ export class CityTraffic {
         isTurning: false,
         edgeDistance: initialDist,
         edgeLength: dist,
-        speed: 8.5 + (i % 5) * 0.6, // ~30-40 km/h
+        speed: 8.5 + (i % 5) * 0.6,
         cruiseSpeed: 8.5 + (i % 5) * 0.6,
         turnSpeed: 5.2,
         laneOffset,
@@ -251,10 +287,10 @@ export class CityTraffic {
         heading,
       };
       this.simulatedCars.push(agent);
-      this.instancedCars.setColorAt(i, carColors[i % carColors.length]);
+      this.instancedCarsBody.setColorAt(i, carColors[i % carColors.length]);
     }
 
-    // B. Spawn 2,200 Scooters (Iconic Vietnam motorbike swarm: Grab, Be, ShopeeFood, commuters)
+    // 2. Spawn 900 Commuter Motorbikes
     for (let i = 0; i < totalScooters; i++) {
       const edge = scooterEdges[i % scooterEdges.length];
       const n1 = roadGraph.nodes.get(edge.fromId)!;
@@ -279,11 +315,11 @@ export class CityTraffic {
         isTurning: false,
         edgeDistance: initialDist,
         edgeLength: dist,
-        speed: 7.2 + (i % 6) * 0.5, // ~26-36 km/h
+        speed: 7.2 + (i % 6) * 0.5,
         cruiseSpeed: 7.2 + (i % 6) * 0.5,
         turnSpeed: 4.8,
         laneOffset,
-        verticalOffset: 0.05,
+        verticalOffset: 0.06,
         turnProgress: 0,
         turnLength: 1,
         p0: new THREE.Vector3(),
@@ -297,10 +333,56 @@ export class CityTraffic {
         heading,
       };
       this.simulatedScooters.push(agent);
-      this.instancedScooters.setColorAt(i, scooterColors[i % scooterColors.length]);
+      this.instancedScootersBody.setColorAt(i, commuterColors[i % commuterColors.length]);
     }
 
-    // C. Spawn 100 City Buses (Xe Buýt Sài Gòn & VinBus cruising along major arteries)
+    // 3. Spawn 400 Delivery Shipper Scooters (Grab, Be, ShopeeFood)
+    for (let i = 0; i < totalShippers; i++) {
+      const edge = scooterEdges[(i * 3 + 7) % scooterEdges.length];
+      const n1 = roadGraph.nodes.get(edge.fromId)!;
+      const n2 = roadGraph.nodes.get(edge.toId)!;
+      const dist = Math.hypot(n2.x - n1.x, n2.z - n1.z);
+      const reverse = i % 2 === 0;
+      const from = reverse ? n2 : n1;
+      const to = reverse ? n1 : n2;
+      const nextId = this.pickNextNode(to.id, from.id);
+      const heading = Math.atan2(to.x - from.x, to.z - from.z);
+      const perpX = -Math.cos(heading);
+      const perpZ = Math.sin(heading);
+      const laneOffset = this.getRoadLaneOffset(edge, 'shipper', i);
+      const initialDist = ((i * 23.7) % (dist * 0.8)) + dist * 0.10;
+
+      const agent: SimulatedVehicle = {
+        id: i,
+        type: 'shipper',
+        fromId: from.id,
+        toId: to.id,
+        nextId,
+        isTurning: false,
+        edgeDistance: initialDist,
+        edgeLength: dist,
+        speed: 7.8 + (i % 5) * 0.5,
+        cruiseSpeed: 7.8 + (i % 5) * 0.5,
+        turnSpeed: 5.0,
+        laneOffset,
+        verticalOffset: 0.06,
+        turnProgress: 0,
+        turnLength: 1,
+        p0: new THREE.Vector3(),
+        p1: new THREE.Vector3(),
+        p2: new THREE.Vector3(),
+        currentPos: new THREE.Vector3(
+          from.x + (to.x - from.x) * (initialDist / dist) + perpX * laneOffset,
+          from.y || 0.08,
+          from.z + (to.z - from.z) * (initialDist / dist) + perpZ * laneOffset
+        ),
+        heading,
+      };
+      this.simulatedShippers.push(agent);
+      this.instancedShippersBody.setColorAt(i, shipperColors[i % shipperColors.length]);
+    }
+
+    // 4. Spawn 80 City Buses (Saigon City Bus & VinBus Electric)
     for (let i = 0; i < totalBuses; i++) {
       const edge = busEdges[i % busEdges.length];
       const n1 = roadGraph.nodes.get(edge.fromId)!;
@@ -325,11 +407,11 @@ export class CityTraffic {
         isTurning: false,
         edgeDistance: initialDist,
         edgeLength: dist,
-        speed: 7.0, // ~25 km/h city cruising speed
+        speed: 7.0,
         cruiseSpeed: 7.0,
-        turnSpeed: 3.8, // Slow majestic turning
+        turnSpeed: 3.8,
         laneOffset,
-        verticalOffset: 0.1,
+        verticalOffset: 0.10,
         turnProgress: 0,
         turnLength: 1,
         p0: new THREE.Vector3(),
@@ -343,30 +425,40 @@ export class CityTraffic {
         heading,
       };
       this.simulatedBuses.push(agent);
-      this.instancedBuses.setColorAt(i, busColors[i % busColors.length]);
+      this.instancedBusesBody.setColorAt(i, busColors[i % busColors.length]);
     }
 
-    if (this.instancedCars.instanceColor) this.instancedCars.instanceColor.needsUpdate = true;
-    if (this.instancedScooters.instanceColor) this.instancedScooters.instanceColor.needsUpdate = true;
-    if (this.instancedBuses.instanceColor) this.instancedBuses.instanceColor.needsUpdate = true;
+    if (this.instancedCarsBody.instanceColor) this.instancedCarsBody.instanceColor.needsUpdate = true;
+    if (this.instancedScootersBody.instanceColor) this.instancedScootersBody.instanceColor.needsUpdate = true;
+    if (this.instancedShippersBody.instanceColor) this.instancedShippersBody.instanceColor.needsUpdate = true;
+    if (this.instancedBusesBody.instanceColor) this.instancedBusesBody.instanceColor.needsUpdate = true;
 
-    this.group.add(this.instancedCars);
-    this.group.add(this.instancedScooters);
-    this.group.add(this.instancedBuses);
+    // Add 8 synchronized instanced meshes to group (Body + Details per class)
+    this.group.add(this.instancedCarsBody);
+    this.group.add(this.instancedCarsDetails);
+
+    this.group.add(this.instancedScootersBody);
+    this.group.add(this.instancedScootersDetails);
+
+    this.group.add(this.instancedShippersBody);
+    this.group.add(this.instancedShippersDetails);
+
+    this.group.add(this.instancedBusesBody);
+    this.group.add(this.instancedBusesDetails);
 
     // Initial update
     this.update(0.016);
   }
 
   /**
-   * Main simulation tick called every animation frame
+   * Main simulation tick called every animation frame (Lightweight & 60 FPS Locked)
    */
   public update(deltaTime: number): void {
     if (!this.roadGraph) return;
     const dt = Math.min(deltaTime, 0.08);
 
     // 1. Update Cars
-    if (this.instancedCars && this.simulatedCars.length > 0) {
+    if (this.instancedCarsBody && this.simulatedCars.length > 0) {
       for (let i = 0; i < this.simulatedCars.length; i++) {
         const v = this.simulatedCars[i];
         this.updateVehicle(v, dt);
@@ -374,13 +466,13 @@ export class CityTraffic {
         this.dummy.rotation.set(0, v.heading, 0);
         this.dummy.scale.set(1, 1, 1);
         this.dummy.updateMatrix();
-        this.instancedCars.setMatrixAt(i, this.dummy.matrix);
+        this.instancedCarsBody.setMatrixAt(i, this.dummy.matrix);
       }
-      this.instancedCars.instanceMatrix.needsUpdate = true;
+      this.instancedCarsBody.instanceMatrix.needsUpdate = true;
     }
 
-    // 2. Update Scooters
-    if (this.instancedScooters && this.simulatedScooters.length > 0) {
+    // 2. Update Commuter Scooters
+    if (this.instancedScootersBody && this.simulatedScooters.length > 0) {
       for (let i = 0; i < this.simulatedScooters.length; i++) {
         const v = this.simulatedScooters[i];
         this.updateVehicle(v, dt);
@@ -388,13 +480,27 @@ export class CityTraffic {
         this.dummy.rotation.set(0, v.heading, 0);
         this.dummy.scale.set(1, 1, 1);
         this.dummy.updateMatrix();
-        this.instancedScooters.setMatrixAt(i, this.dummy.matrix);
+        this.instancedScootersBody.setMatrixAt(i, this.dummy.matrix);
       }
-      this.instancedScooters.instanceMatrix.needsUpdate = true;
+      this.instancedScootersBody.instanceMatrix.needsUpdate = true;
     }
 
-    // 3. Update Buses
-    if (this.instancedBuses && this.simulatedBuses.length > 0) {
+    // 3. Update Delivery Shippers
+    if (this.instancedShippersBody && this.simulatedShippers.length > 0) {
+      for (let i = 0; i < this.simulatedShippers.length; i++) {
+        const v = this.simulatedShippers[i];
+        this.updateVehicle(v, dt);
+        this.dummy.position.copy(v.currentPos);
+        this.dummy.rotation.set(0, v.heading, 0);
+        this.dummy.scale.set(1, 1, 1);
+        this.dummy.updateMatrix();
+        this.instancedShippersBody.setMatrixAt(i, this.dummy.matrix);
+      }
+      this.instancedShippersBody.instanceMatrix.needsUpdate = true;
+    }
+
+    // 4. Update Buses
+    if (this.instancedBusesBody && this.simulatedBuses.length > 0) {
       for (let i = 0; i < this.simulatedBuses.length; i++) {
         const v = this.simulatedBuses[i];
         this.updateVehicle(v, dt);
@@ -402,9 +508,9 @@ export class CityTraffic {
         this.dummy.rotation.set(0, v.heading, 0);
         this.dummy.scale.set(1, 1, 1);
         this.dummy.updateMatrix();
-        this.instancedBuses.setMatrixAt(i, this.dummy.matrix);
+        this.instancedBusesBody.setMatrixAt(i, this.dummy.matrix);
       }
-      this.instancedBuses.instanceMatrix.needsUpdate = true;
+      this.instancedBusesBody.instanceMatrix.needsUpdate = true;
     }
   }
 
@@ -498,10 +604,8 @@ export class CityTraffic {
 
             const exitRadius = Math.min(6.5, len2 * 0.35);
 
-            // Compute outgoing road's authentic lane offset
-            const outgoingEdge = this.roadGraph.edges.find(
-              (e) => (e.fromId === n2.id && e.toId === n3.id) || (e.fromId === n3.id && e.toId === n2.id)
-            );
+            // Compute outgoing road's authentic lane offset (O(1) Map lookup)
+            const outgoingEdge = this.edgeMap.get(`${n2.id}_${n3.id}`);
             const outLaneOffset = this.getRoadLaneOffset(outgoingEdge, v.type, v.id);
 
             // Construct smooth Quadratic Bézier Curve (P0 -> P1 -> P2):
@@ -610,10 +714,8 @@ export class CityTraffic {
           v.edgeDistance = 0.0;
         }
 
-        // Dynamically adjust lane offset to the new road's width
-        const newEdge = this.roadGraph.edges.find(
-          (e) => (e.fromId === v.fromId && e.toId === v.toId) || (e.fromId === v.toId && e.toId === v.fromId)
-        );
+        // Dynamically adjust lane offset to the new road's width (O(1) Map lookup)
+        const newEdge = this.edgeMap.get(`${v.fromId}_${v.toId}`);
         v.laneOffset = this.getRoadLaneOffset(newEdge, v.type, v.id);
 
         v.currentPos.copy(v.p2);

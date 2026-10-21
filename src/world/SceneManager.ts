@@ -27,14 +27,14 @@ export class SceneManager {
 
     // 1. Scene setup
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xbfe3f7); // Tropical Saigon daylight
-    this.scene.fog = new THREE.FogExp2(0xbfe3f7, 0.0018);
+    this.scene.background = new THREE.Color(0xdbeafe); // Soft Saigon daylight sky
+    this.scene.fog = new THREE.FogExp2(0xdbeafe, 0.001);
 
-    // 2. Camera setup
+    // 2. Camera setup - Isometric SimCity Perspective (FOV 40, tilted ~53° as shown in reference)
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
-    this.camera = new THREE.PerspectiveCamera(55, width / height, 0.5, 3000);
-    this.camera.position.set(0, 160, 220);
+    this.camera = new THREE.PerspectiveCamera(40, width / height, 1, 4000);
+    this.camera.position.set(240, 275, 240); // 53° pitch diagonal angle
 
     // 3. Renderer setup
     this.renderer = new THREE.WebGLRenderer({
@@ -46,39 +46,39 @@ export class SceneManager {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.25;
     container.appendChild(this.renderer.domElement);
 
     // 4. Orbit Controls
     this.orbitControls = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbitControls.enableDamping = true;
     this.orbitControls.dampingFactor = 0.05;
-    this.orbitControls.maxPolarAngle = Math.PI / 2 - 0.05; // Don't go below ground
-    this.orbitControls.minDistance = 5;
-    this.orbitControls.maxDistance = 1200;
+    this.orbitControls.maxPolarAngle = Math.PI / 2 - 0.08;
+    this.orbitControls.minDistance = 20;
+    this.orbitControls.maxDistance = 1500;
     this.orbitControls.target.set(0, 0, 0);
 
-    // 5. Lighting
-    this.hemiLight = new THREE.HemisphereLight(0xfff8e7, 0x445566, 0.95);
-    this.hemiLight.position.set(0, 200, 0);
+    // 5. Lighting - Warm Tropical Sun + Cool Skylight (Crisp diagonal shadows)
+    this.hemiLight = new THREE.HemisphereLight(0xfffbeb, 0x93c5fd, 1.1);
+    this.hemiLight.position.set(0, 300, 0);
     this.scene.add(this.hemiLight);
 
-    this.sunLight = new THREE.DirectionalLight(0xfff1cf, 1.6);
-    this.sunLight.position.set(250, 350, 150);
+    this.sunLight = new THREE.DirectionalLight(0xfff8db, 2.2);
+    this.sunLight.position.set(280, 400, 180);
     this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.width = 2048;
-    this.sunLight.shadow.mapSize.height = 2048;
+    this.sunLight.shadow.mapSize.width = 4096;
+    this.sunLight.shadow.mapSize.height = 4096;
     this.sunLight.shadow.camera.near = 10;
-    this.sunLight.shadow.camera.far = 800;
-    const shadowDist = 300;
+    this.sunLight.shadow.camera.far = 1200;
+    const shadowDist = 450;
     this.sunLight.shadow.camera.left = -shadowDist;
     this.sunLight.shadow.camera.right = shadowDist;
     this.sunLight.shadow.camera.top = shadowDist;
     this.sunLight.shadow.camera.bottom = -shadowDist;
-    this.sunLight.shadow.bias = -0.0004;
+    this.sunLight.shadow.bias = -0.0003;
     this.scene.add(this.sunLight);
 
-    // 6. Base Ground Plane
+    // 6. Base Urban Parcel Ground
     this.createBaseGround();
 
     // 7. Resize handling
@@ -89,11 +89,12 @@ export class SceneManager {
   }
 
   private createBaseGround(): void {
-    const groundGeo = new THREE.PlaneGeometry(3000, 3000, 32, 32);
+    const groundGeo = new THREE.PlaneGeometry(4000, 4000, 32, 32);
     groundGeo.rotateX(-Math.PI / 2);
 
+    // Warm concrete urban parcel ground (matches the reference city screenshot)
     const groundMat = new THREE.MeshStandardMaterial({
-      color: 0x22262b,
+      color: 0xdbe0e8,
       roughness: 0.95,
       metalness: 0.05,
     });
@@ -103,11 +104,6 @@ export class SceneManager {
     groundMesh.receiveShadow = true;
     groundMesh.name = 'baseGround';
     this.scene.add(groundMesh);
-
-    // Add subtle grid to the ground
-    const grid = new THREE.GridHelper(2000, 100, 0x3f3f46, 0x27272a);
-    grid.position.y = 0.01;
-    this.scene.add(grid);
   }
 
   public registerUpdateHook(hook: (deltaTime: number) => void): void {
@@ -140,6 +136,8 @@ export class SceneManager {
         obj.name.startsWith('water_') ||
         obj.name.startsWith('parks_') ||
         obj.name.startsWith('trees_') ||
+        obj.name.startsWith('vegetation_') ||
+        obj.name.startsWith('traffic_') ||
         obj.name.startsWith('marker_')
       ) {
         toRemove.push(obj);

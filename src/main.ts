@@ -10,6 +10,8 @@ import { EnvironmentBuilder } from './world/EnvironmentBuilder';
 import { GeoProjection } from './world/projection';
 import { SceneManager } from './world/SceneManager';
 import { ShipperController } from './world/ShipperController';
+import { CityVegetation } from './world/CityVegetation';
+import { CityTraffic, VehiclePlacement } from './world/CityTraffic';
 
 class SaigonShipperApp {
   private sceneManager!: SceneManager;
@@ -329,17 +331,91 @@ class SaigonShipperApp {
         this.sceneManager.scene.add(waterMesh);
       }
 
-      // 5D. 3D Merged Parks & Trees
-      const { parkMesh, treeMesh } = EnvironmentBuilder.buildParks(fusionResult.parks);
+      // 5D. 3D Merged Parks
+      const { parkMesh } = EnvironmentBuilder.buildParks(fusionResult.parks);
       if (parkMesh) this.sceneManager.scene.add(parkMesh);
-      if (treeMesh) this.sceneManager.scene.add(treeMesh);
+
+      // 5E. 1,500+ Lush Tropical Trees (InstancedMesh - 1 Draw Call)
+      const treePositions: Array<{ x: number; z: number; scale?: number }> = [];
+
+      // Trees along sidewalks and canal banks
+      for (const edge of fusionResult.roadGraph.edges) {
+        const n1 = fusionResult.roadGraph.nodes.get(edge.fromId);
+        const n2 = fusionResult.roadGraph.nodes.get(edge.toId);
+        if (n1 && n2) {
+          const dist = Math.hypot(n2.x - n1.x, n2.z - n1.z);
+          const steps = Math.floor(dist / 14);
+          for (let s = 1; s <= steps; s++) {
+            const t = s / (steps + 1);
+            const midX = n1.x + (n2.x - n1.x) * t;
+            const midZ = n1.z + (n2.z - n1.z) * t;
+            const perpX = -(n2.z - n1.z) / (dist || 1);
+            const perpZ = (n2.x - n1.x) / (dist || 1);
+            const offset = edge.isAlley ? 2.6 : 7.2;
+            treePositions.push({ x: midX + perpX * offset, z: midZ + perpZ * offset, scale: 0.8 + Math.random() * 0.4 });
+            treePositions.push({ x: midX - perpX * offset, z: midZ - perpZ * offset, scale: 0.8 + Math.random() * 0.4 });
+          }
+        }
+      }
+
+      // Trees in parks and plazas
+      for (const park of fusionResult.parks) {
+        const outer = park.rings[0];
+        if (outer && outer.length >= 3) {
+          let cx = 0, cz = 0;
+          for (const pt of outer) { cx += pt.x; cz += pt.z; }
+          cx /= outer.length; cz /= outer.length;
+          for (let k = 0; k < 28; k++) {
+            const rad = Math.random() * 45;
+            const ang = Math.random() * Math.PI * 2;
+            treePositions.push({
+              x: cx + Math.cos(ang) * rad,
+              z: cz + Math.sin(ang) * rad,
+              scale: 0.9 + Math.random() * 0.6,
+            });
+          }
+        }
+      }
+
+      const vegetationGroup = CityVegetation.createVegetation(treePositions);
+      this.sceneManager.scene.add(vegetationGroup);
+
+      // 5F. 500+ Vehicles on Streets and Alleys (InstancedMesh - 1 Draw Call)
+      const vehiclePlacements: VehiclePlacement[] = [];
+      for (const edge of fusionResult.roadGraph.edges) {
+        const n1 = fusionResult.roadGraph.nodes.get(edge.fromId);
+        const n2 = fusionResult.roadGraph.nodes.get(edge.toId);
+        if (n1 && n2) {
+          const dist = Math.hypot(n2.x - n1.x, n2.z - n1.z);
+          if (dist > 18) {
+            const heading = Math.atan2(n2.x - n1.x, n2.z - n1.z);
+            const count = Math.floor(dist / 22);
+            for (let v = 1; v <= count; v++) {
+              const t = v / (count + 1);
+              const vx = n1.x + (n2.x - n1.x) * t;
+              const vz = n1.z + (n2.z - n1.z) * t;
+              const perpX = -(n2.z - n1.z) / (dist || 1);
+              const perpZ = (n2.x - n1.x) / (dist || 1);
+              const laneOffset = edge.isAlley ? 0 : 2.5 * (v % 2 === 0 ? 1 : -1);
+              vehiclePlacements.push({
+                x: vx + perpX * laneOffset,
+                z: vz + perpZ * laneOffset,
+                heading: v % 2 === 0 ? heading : heading + Math.PI,
+              });
+            }
+          }
+        }
+      }
+
+      const trafficGroup = CityTraffic.createTraffic(vehiclePlacements);
+      this.sceneManager.scene.add(trafficGroup);
 
       // Step 6: Initialize Shipper scooter environment
       this.shipperController.setEnvironment(fusionResult.buildings, fusionResult.roadGraph);
 
-      const totalTime = Math.round(performance.now() - startTime);
+      const totalTime = (performance.now() - startTime) / 1000;
       this.appendTelemetryLog(
-        `[Hoàn tất Phase 1] Đã tạo thành công thế giới 3D (${fusionResult.buildings.length} nhà, ${fusionResult.roads.length} đường/hẻm, ${fusionResult.water.length} sông hồ) trong ${totalTime}ms!`,
+        `[Đô thị Sài Gòn 3D] ~0.95 km² • ${fusionResult.buildings.length} nhà • ${treePositions.length} cây xanh • ${vehiclePlacements.length} xe cộ • Dựng xong trong ${totalTime.toFixed(1)}s (Nghiêng 53°)`,
         'success'
       );
 

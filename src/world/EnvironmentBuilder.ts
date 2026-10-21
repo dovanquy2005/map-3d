@@ -7,32 +7,105 @@ import { TextureGenerator } from './TextureGenerator';
 
 export class EnvironmentBuilder {
   /**
-   * Builds Continuous Paved Road Ribbons from line paths + Sidewalk curbs flanking both sides
+   * Builds Continuous Paved Road Ribbons with miter corner joints + Raised Sidewalk Curbs
    */
   public static buildRoads(roads: RoadPolygonItem[]): THREE.Group {
     const group = new THREE.Group();
     group.name = 'roads_group';
 
-    const asphaltGeometries: THREE.BufferGeometry[] = [];
+    const mainAsphaltGeometries: THREE.BufferGeometry[] = [];
+    const alleyAsphaltGeometries: THREE.BufferGeometry[] = [];
     const sidewalkGeometries: THREE.BufferGeometry[] = [];
 
-    const asphaltColor = new THREE.Color(SAIGON_PALETTES.mainAsphalt);
-    const alleyColor = new THREE.Color(SAIGON_PALETTES.alleyPavement);
     const sidewalkColor = new THREE.Color(SAIGON_PALETTES.sidewalkConcrete);
+    const curbDropColor = new THREE.Color(0x94a3b8);
 
     for (const road of roads) {
-      // 1. Path-based Continuous Road Ribbon (No z-fighting, perfectly smooth)
       if (road.path && road.path.length >= 2) {
         const path = road.path;
-        const width = Math.max(2.8, road.width);
+        const width = Math.max(2.6, road.width);
         const halfW = width / 2;
-        const sidewalkW = road.isAlley ? 0.8 : 2.2;
-        const col = road.isAlley ? alleyColor : asphaltColor;
+        const sidewalkW = road.isAlley ? 0.6 : 2.0;
 
-        const asphaltPos: number[] = [];
-        const asphaltNorm: number[] = [];
-        const asphaltCol: number[] = [];
-        const asphaltUV: number[] = [];
+        // Elevation hierarchy to eliminate z-fighting at intersections:
+        // Main avenue > Secondary street > Alley
+        const asphaltY = road.isAlley
+          ? 0.078
+          : road.highway === 'primary'
+          ? 0.084
+          : road.highway === 'secondary'
+          ? 0.082
+          : 0.080;
+        const sidewalkY = 0.120;
+
+        // Step 1: Calculate segment directions and lengths
+        const segDirs: Array<{ x: number; z: number; len: number }> = [];
+        for (let i = 0; i < path.length - 1; i++) {
+          const dx = path[i + 1].x - path[i].x;
+          const dz = path[i + 1].z - path[i].z;
+          const len = Math.hypot(dx, dz);
+          segDirs.push({
+            x: len > 0.001 ? dx / len : 0,
+            z: len > 0.001 ? dz / len : 1,
+            len,
+          });
+        }
+
+        // Step 2: Calculate miter vertex normals at each path point
+        const miterNormals: Array<{ x: number; z: number; scale: number }> = [];
+        for (let i = 0; i < path.length; i++) {
+          if (i === 0) {
+            const d = segDirs[0];
+            miterNormals.push({ x: -d.z, z: d.x, scale: 1 });
+          } else if (i === path.length - 1) {
+            const d = segDirs[segDirs.length - 1];
+            miterNormals.push({ x: -d.z, z: d.x, scale: 1 });
+          } else {
+            const dIn = segDirs[i - 1];
+            const dOut = segDirs[i];
+            const avgX = dIn.x + dOut.x;
+            const avgZ = dIn.z + dOut.z;
+            const avgLen = Math.hypot(avgX, avgZ);
+
+            if (avgLen > 0.001) {
+              const dirX = avgX / avgLen;
+              const dirZ = avgZ / avgLen;
+              const normX = -dirZ;
+              const normZ = dirX;
+
+              const cosA = normX * (-dIn.z) + normZ * dIn.x;
+              const scale = Math.min(2.0, 1.0 / Math.max(0.4, cosA));
+              miterNormals.push({ x: normX, z: normZ, scale });
+            } else {
+              miterNormals.push({ x: -dIn.z, z: dIn.x, scale: 1 });
+            }
+          }
+        }
+
+        // Step 3: Compute ribbon vertex coordinates
+        const lRoad: Array<[number, number, number]> = [];
+        const rRoad: Array<[number, number, number]> = [];
+        const lSidewalk: Array<[number, number, number]> = [];
+        const rSidewalk: Array<[number, number, number]> = [];
+
+        for (let i = 0; i < path.length; i++) {
+          const p = path[i];
+          const m = miterNormals[i];
+
+          const offRoad = halfW * m.scale;
+          const offSw = (halfW + sidewalkW) * m.scale;
+
+          lRoad.push([p.x + m.x * offRoad, asphaltY, p.z + m.z * offRoad]);
+          rRoad.push([p.x - m.x * offRoad, asphaltY, p.z - m.z * offRoad]);
+
+          lSidewalk.push([p.x + m.x * offSw, sidewalkY, p.z + m.z * offSw]);
+          rSidewalk.push([p.x - m.x * offSw, sidewalkY, p.z - m.z * offSw]);
+        }
+
+        // Step 4: Build Quads between adjacent vertices
+        const aPos: number[] = [];
+        const aNorm: number[] = [];
+        const aUV: number[] = [];
 
         const swPos: number[] = [];
         const swNorm: number[] = [];
@@ -41,67 +114,82 @@ export class EnvironmentBuilder {
         let cumDist = 0;
 
         for (let i = 0; i < path.length - 1; i++) {
-          const p1 = path[i];
-          const p2 = path[i + 1];
-
-          const dx = p2.x - p1.x;
-          const dz = p2.z - p1.z;
-          const segLen = Math.hypot(dx, dz);
+          const segLen = segDirs[i].len;
           if (segLen < 0.1) continue;
 
-          // Normal perpendicular to road direction in X-Z plane
-          const nx = -dz / segLen;
-          const nz = dx / segLen;
+          const p1L = lRoad[i];
+          const p1R = rRoad[i];
+          const p2L = lRoad[i + 1];
+          const p2R = rRoad[i + 1];
 
-          const l1 = [p1.x + nx * halfW, 0.08, p1.z + nz * halfW];
-          const r1 = [p1.x - nx * halfW, 0.08, p1.z - nz * halfW];
-          const l2 = [p2.x + nx * halfW, 0.08, p2.z + nz * halfW];
-          const r2 = [p2.x - nx * halfW, 0.08, p2.z - nz * halfW];
+          const sw1L = lSidewalk[i];
+          const sw1R = rSidewalk[i];
+          const sw2L = lSidewalk[i + 1];
+          const sw2R = rSidewalk[i + 1];
 
-          const d1 = cumDist;
-          const d2 = cumDist + segLen;
-          cumDist = d2;
+          const v1 = cumDist * 0.08;
+          const v2 = (cumDist + segLen) * 0.08;
+          cumDist += segLen;
 
-          // Road Asphalt Quad (l1, r1, r2, l2)
-          asphaltPos.push(...l1, ...r1, ...r2);
-          asphaltPos.push(...l1, ...r2, ...l2);
+          // Road Asphalt Quad (p1L -> p1R -> p2R, p1L -> p2R -> p2L)
+          aPos.push(...p1L, ...p1R, ...p2R);
+          aPos.push(...p1L, ...p2R, ...p2L);
 
-          for (let k = 0; k < 6; k++) {
-            asphaltNorm.push(0, 1, 0);
-            asphaltCol.push(col.r, col.g, col.b);
-          }
+          for (let k = 0; k < 6; k++) aNorm.push(0, 1, 0);
 
-          // UV mapping: U from 0 to 1 across road width, V along road distance
-          asphaltUV.push(0, d1 * 0.08,  1, d1 * 0.08,  1, d2 * 0.08);
-          asphaltUV.push(0, d1 * 0.08,  1, d2 * 0.08,  0, d2 * 0.08);
+          aUV.push(0, v1, 1, v1, 1, v2);
+          aUV.push(0, v1, 1, v2, 0, v2);
 
-          // Raised Sidewalk Curbs flanking the road (y = 0.12m)
-          const swLeft1 = [p1.x + nx * (halfW + sidewalkW), 0.12, p1.z + nz * (halfW + sidewalkW)];
-          const swLeft2 = [p2.x + nx * (halfW + sidewalkW), 0.12, p2.z + nz * (halfW + sidewalkW)];
-          const swRight1 = [p1.x - nx * (halfW + sidewalkW), 0.12, p1.z - nz * (halfW + sidewalkW)];
-          const swRight2 = [p2.x - nx * (halfW + sidewalkW), 0.12, p2.z - nz * (halfW + sidewalkW)];
+          // Left Sidewalk Ribbon (Top surface at sidewalkY)
+          const sw1L_in = [p1L[0], sidewalkY, p1L[2]];
+          const sw2L_in = [p2L[0], sidewalkY, p2L[2]];
 
-          // Left Sidewalk Ribbon
-          swPos.push(...swLeft1, ...l1, ...l2);
-          swPos.push(...swLeft1, ...l2, ...swLeft2);
+          swPos.push(...sw1L, ...sw1L_in, ...sw2L_in);
+          swPos.push(...sw1L, ...sw2L_in, ...sw2L);
 
-          // Right Sidewalk Ribbon
-          swPos.push(...r1, ...swRight1, ...swRight2);
-          swPos.push(...r1, ...swRight2, ...r2);
+          // Right Sidewalk Ribbon (Top surface at sidewalkY)
+          const sw1R_in = [p1R[0], sidewalkY, p1R[2]];
+          const sw2R_in = [p2R[0], sidewalkY, p2R[2]];
+
+          swPos.push(...sw1R_in, ...sw1R, ...sw2R);
+          swPos.push(...sw1R_in, ...sw2R, ...sw2R_in);
 
           for (let k = 0; k < 12; k++) {
             swNorm.push(0, 1, 0);
             swCol.push(sidewalkColor.r, sidewalkColor.g, sidewalkColor.b);
           }
+
+          // 3D Sidewalk Curb Drops (Vertical faces from 0.12 down to asphalt 0.08)
+          // Left Curb Face
+          swPos.push(...sw1L_in, ...p1L, ...p2L);
+          swPos.push(...sw1L_in, ...p2L, ...sw2L_in);
+
+          // Right Curb Face
+          swPos.push(...p1R, ...sw1R_in, ...sw2R_in);
+          swPos.push(...p1R, ...sw2R_in, ...p2R);
+
+          const m = miterNormals[i];
+          for (let k = 0; k < 6; k++) {
+            swNorm.push(-m.x, 0, -m.z);
+            swCol.push(curbDropColor.r, curbDropColor.g, curbDropColor.b);
+          }
+          for (let k = 0; k < 6; k++) {
+            swNorm.push(m.x, 0, m.z);
+            swCol.push(curbDropColor.r, curbDropColor.g, curbDropColor.b);
+          }
         }
 
-        if (asphaltPos.length > 0) {
+        if (aPos.length > 0) {
           const aGeo = new THREE.BufferGeometry();
-          aGeo.setAttribute('position', new THREE.Float32BufferAttribute(asphaltPos, 3));
-          aGeo.setAttribute('normal', new THREE.Float32BufferAttribute(asphaltNorm, 3));
-          aGeo.setAttribute('color', new THREE.Float32BufferAttribute(asphaltCol, 3));
-          aGeo.setAttribute('uv', new THREE.Float32BufferAttribute(asphaltUV, 2));
-          asphaltGeometries.push(aGeo);
+          aGeo.setAttribute('position', new THREE.Float32BufferAttribute(aPos, 3));
+          aGeo.setAttribute('normal', new THREE.Float32BufferAttribute(aNorm, 3));
+          aGeo.setAttribute('uv', new THREE.Float32BufferAttribute(aUV, 2));
+
+          if (road.isAlley) {
+            alleyAsphaltGeometries.push(aGeo);
+          } else {
+            mainAsphaltGeometries.push(aGeo);
+          }
         }
 
         if (swPos.length > 0) {
@@ -112,53 +200,76 @@ export class EnvironmentBuilder {
           sidewalkGeometries.push(sGeo);
         }
       }
-      // 2. Polygon-based fallback
+      // Polygon-based road fallback (e.g. plazas/roundabouts)
       else if (road.rings && road.rings.length > 0) {
-        const col = road.isAlley ? alleyColor : asphaltColor;
+        const col = new THREE.Color(road.isAlley ? SAIGON_PALETTES.alleyPavement : SAIGON_PALETTES.mainAsphalt);
         const geo = this.triangulatePolygon(road.rings, 0.08, col);
-        if (geo) asphaltGeometries.push(geo);
+        if (geo) {
+          if (road.isAlley) alleyAsphaltGeometries.push(geo);
+          else mainAsphaltGeometries.push(geo);
+        }
       }
     }
 
-    // Merge Asphalt Mesh with Road Texture (Centerlines & Shoulders)
-    if (asphaltGeometries.length > 0) {
-      const mergedAsphalt = BufferGeometryUtils.mergeGeometries(asphaltGeometries, false);
-      for (const g of asphaltGeometries) g.dispose();
+    // 1. Main Avenues & Streets Asphalt Mesh
+    if (mainAsphaltGeometries.length > 0) {
+      const mergedMain = BufferGeometryUtils.mergeGeometries(mainAsphaltGeometries, false);
+      for (const g of mainAsphaltGeometries) g.dispose();
 
-      if (mergedAsphalt) {
+      if (mergedMain) {
         const roadTexture = TextureGenerator.getRoadTexture();
-        const roadMaterial = new THREE.MeshStandardMaterial({
+        const roadMat = new THREE.MeshStandardMaterial({
           map: roadTexture,
-          vertexColors: true,
-          roughness: 0.82,
-          metalness: 0.08,
+          roughness: 0.85,
+          metalness: 0.05,
           side: THREE.DoubleSide,
         });
 
-        const asphaltMesh = new THREE.Mesh(mergedAsphalt, roadMaterial);
-        asphaltMesh.name = 'roads_asphalt_merged';
-        asphaltMesh.receiveShadow = true;
-        group.add(asphaltMesh);
+        const mainMesh = new THREE.Mesh(mergedMain, roadMat);
+        mainMesh.name = 'roads_main_merged';
+        mainMesh.receiveShadow = true;
+        group.add(mainMesh);
       }
     }
 
-    // Merge Raised Sidewalk Curbs
+    // 2. Saigon Alleys Asphalt / Paver Mesh
+    if (alleyAsphaltGeometries.length > 0) {
+      const mergedAlley = BufferGeometryUtils.mergeGeometries(alleyAsphaltGeometries, false);
+      for (const g of alleyAsphaltGeometries) g.dispose();
+
+      if (mergedAlley) {
+        const alleyTexture = TextureGenerator.getAlleyTexture();
+        const alleyMat = new THREE.MeshStandardMaterial({
+          map: alleyTexture,
+          roughness: 0.9,
+          metalness: 0.05,
+          side: THREE.DoubleSide,
+        });
+
+        const alleyMesh = new THREE.Mesh(mergedAlley, alleyMat);
+        alleyMesh.name = 'roads_alley_merged';
+        alleyMesh.receiveShadow = true;
+        group.add(alleyMesh);
+      }
+    }
+
+    // 3. Raised Sidewalk Curbs
     if (sidewalkGeometries.length > 0) {
       const mergedSidewalks = BufferGeometryUtils.mergeGeometries(sidewalkGeometries, false);
       for (const g of sidewalkGeometries) g.dispose();
 
       if (mergedSidewalks) {
-        const sidewalkMaterial = new THREE.MeshStandardMaterial({
+        const sidewalkMat = new THREE.MeshStandardMaterial({
           vertexColors: true,
-          roughness: 0.92,
-          metalness: 0.05,
+          roughness: 0.9,
+          metalness: 0.02,
           side: THREE.DoubleSide,
         });
 
-        const sidewalkMesh = new THREE.Mesh(mergedSidewalks, sidewalkMaterial);
-        sidewalkMesh.name = 'roads_sidewalks_merged';
-        sidewalkMesh.receiveShadow = true;
-        group.add(sidewalkMesh);
+        const swMesh = new THREE.Mesh(mergedSidewalks, sidewalkMat);
+        swMesh.name = 'roads_sidewalks_merged';
+        swMesh.receiveShadow = true;
+        group.add(swMesh);
       }
     }
 
@@ -241,7 +352,7 @@ export class EnvironmentBuilder {
       colors.push(color.r, color.g, color.b);
       colors.push(color.r, color.g, color.b);
 
-      uvs.push(0, 0, 1, 0, 0.5, 1);
+      uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -276,11 +387,11 @@ export class EnvironmentBuilder {
 
     const material = new THREE.MeshStandardMaterial({
       color: 0x0284c7,
-      roughness: 0.1,
-      metalness: 0.4,
+      roughness: 0.15,
+      metalness: 0.35,
       side: THREE.DoubleSide,
       transparent: true,
-      opacity: 0.95,
+      opacity: 0.92,
     });
 
     const mesh = new THREE.Mesh(merged, material);
@@ -311,8 +422,8 @@ export class EnvironmentBuilder {
       if (mergedParks) {
         const material = new THREE.MeshStandardMaterial({
           color: 0x4ade80, // Fresh vibrant green
-          roughness: 0.9,
-          metalness: 0.05,
+          roughness: 0.88,
+          metalness: 0.02,
           side: THREE.DoubleSide,
         });
         parkMesh = new THREE.Mesh(mergedParks, material);

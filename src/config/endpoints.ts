@@ -81,22 +81,44 @@ export const ROAD_BUFFER_CONFIG: Record<string, { width: number; radiusKm: numbe
 };
 
 export const SAIGON_PALETTES = {
+  // Vibrant Vietnamese Architectural Wall Palettes (Matching reference image)
   cream: 0xfef9c3,
-  yellowOchre: 0xfde047,
+  vanillaIvory: 0xfef3c7,
+  yellowOchre: 0xfacc15,
+  warmGold: 0xfbbf24,
   warmOchre: 0xf59e0b,
+  colonialYellow: 0xeab308,
   mintGreen: 0x86efac,
+  pastelTurquoise: 0x5eead4,
+  freshSage: 0xa7f3d0,
   salmonCoral: 0xfca5a5,
+  salmonPeach: 0xfda4af,
+  warmCoral: 0xfb923c,
+  skyBlue: 0x7dd3fc,
+  softPeriwinkle: 0x93c5fd,
   pearlWhite: 0xf8fafc,
   concreteGrey: 0xe2e8f0,
   concreteDark: 0x334155,
-  terracottaRoof: 0xdc2626,
-  orangeRoof: 0xea580c,
-  blueRoof: 0x2563eb,
-  glassTowerCyan: 0x38bdf8,
   towerNavy: 0x1e293b,
-  historicRed: 0xdc2626,
-  templeGold: 0xf59e0b,
-  mainAsphalt: 0x334155,
+  towerSlate: 0x0f172a,
+
+  // Authentic Roof Tiles & Corrugated Metal Sheets
+  terracottaRoof: 0xdc2626,
+  crimsonRoof: 0xb91c1c,
+  orangeRoof: 0xea580c,
+  cinnamonRoof: 0xc2410c,
+  blueRoof: 0x2563eb,
+  sapphireRoof: 0x1d4ed8,
+  mossGreenRoof: 0x15803d,
+  flatRoofConcrete: 0xe2e8f0,
+
+  // Landmarks & Institutional
+  historicRed: 0xb91c1c,
+  templeGold: 0xd97706,
+  glassTowerCyan: 0x38bdf8,
+
+  // Pavement & Environment
+  mainAsphalt: 0x2b3342,
   sidewalkConcrete: 0xe2e8f0,
   alleyPavement: 0x64748b,
   tropicalWater: 0x0284c7,

@@ -33,8 +33,13 @@ interface ServerEndpoint {
 }
 
 /**
- * Generates an authentic dense Saigon urban grid (Avenues, Residential streets, Alleys, Canal, and Tube houses)
- * Used as 100% resilient fallback if international OSM mirrors are slow or unreachable.
+ * Generates an authentic dense Saigon urban district matching the reference image:
+ * - Winding canal (Kênh Nhiêu Lộc) with riverside promenades and road bridges
+ * - Boulevard (14m), secondary avenues (10m), residential streets (6m), and internal alleys (3.2m)
+ * - School campus with courtyard/sports pitch and terracotta red sloped roofs
+ * - Modern apartment blocks with balconies and rooftop penthouses
+ * - Sleek dark glass corporate towers
+ * - Dense colorful Saigon tube houses with 100% collision-free setbacks from all roads
  */
 function createFallbackSaigonGeoJSON(bbox: BBox): any {
   const { south, west, north, east } = bbox;
@@ -43,200 +48,395 @@ function createFallbackSaigonGeoJSON(bbox: BBox): any {
 
   const features: any[] = [];
 
-  // 1. Primary Boulevard (Đại lộ Sài Gòn - 14m wide)
+  // ==========================================
+  // 1. WATER CANAL (Kênh Nhiêu Lộc - Thị Nghè)
+  // ==========================================
+  features.push({
+    type: 'Feature',
+    properties: { waterway: 'canal', name: 'Kênh Nhiêu Lộc - Thị Nghè' },
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [west, south + 0.16 * latSpan],
+        [west + 0.28 * lonSpan, south + 0.14 * latSpan],
+        [west + 0.55 * lonSpan, south + 0.15 * latSpan],
+        [west + 0.78 * lonSpan, south + 0.18 * latSpan],
+        [east, south + 0.16 * latSpan],
+      ],
+    },
+  });
+
+  // ==========================================
+  // 2. PRIMARY BOULEVARDS & ARTERIAL AVENUES
+  // ==========================================
+  // Primary Boulevard (Đại Lộ Sài Gòn - 14m wide)
   features.push({
     type: 'Feature',
     properties: { highway: 'primary', name: 'Đại Lộ Sài Gòn' },
     geometry: {
       type: 'LineString',
       coordinates: [
-        [west, south + 0.5 * latSpan],
-        [east, south + 0.5 * latSpan],
+        [west, south + 0.58 * latSpan],
+        [east, south + 0.58 * latSpan],
       ],
     },
   });
 
-  // 2. Secondary Avenues (North - South arterial streets)
-  const nsStreets = [0.25, 0.75];
-  for (let i = 0; i < nsStreets.length; i++) {
-    const x = west + nsStreets[i] * lonSpan;
-    features.push({
-      type: 'Feature',
-      properties: { highway: 'secondary', name: `Đường Phố Sài Gòn ${i + 1}` },
-      geometry: {
-        type: 'LineString',
-        coordinates: [
-          [x, south],
-          [x, north],
-        ],
-      },
-    });
-  }
-
-  // 3. Residential Cross Streets (Đường nội khu 6m)
-  const ewStreets = [0.2, 0.8];
-  for (let i = 0; i < ewStreets.length; i++) {
-    const y = south + ewStreets[i] * latSpan;
-    features.push({
-      type: 'Feature',
-      properties: { highway: 'residential', name: `Đường Nội Bộ ${i + 1}` },
-      geometry: {
-        type: 'LineString',
-        coordinates: [
-          [west, y],
-          [east, y],
-        ],
-      },
-    });
-  }
-
-  // 4. Dense Saigon Alleys (Mê cung Hẻm 2.8m - Iconic Saigon Alleys)
-  const alleyYOffsets = [0.1, 0.35, 0.65, 0.9];
-  for (let i = 0; i < alleyYOffsets.length; i++) {
-    const y = south + alleyYOffsets[i] * latSpan;
-    features.push({
-      type: 'Feature',
-      properties: { highway: 'service', name: `Hẻm ${120 + i * 18} Sài Gòn` },
-      geometry: {
-        type: 'LineString',
-        coordinates: [
-          [west + 0.05 * lonSpan, y],
-          [west + 0.45 * lonSpan, y],
-        ],
-      },
-    });
-    features.push({
-      type: 'Feature',
-      properties: { highway: 'service', name: `Hẻm ${210 + i * 18} Sài Gòn` },
-      geometry: {
-        type: 'LineString',
-        coordinates: [
-          [west + 0.55 * lonSpan, y],
-          [east - 0.05 * lonSpan, y],
-        ],
-      },
-    });
-  }
-
-  // Vertical alleys connecting the maze
-  const alleyXOffsets = [0.12, 0.38, 0.62, 0.88];
-  for (let i = 0; i < alleyXOffsets.length; i++) {
-    const x = west + alleyXOffsets[i] * lonSpan;
-    features.push({
-      type: 'Feature',
-      properties: { highway: 'service', name: `Hẻm Nhánh ${i + 1}` },
-      geometry: {
-        type: 'LineString',
-        coordinates: [
-          [x, south + 0.22 * latSpan],
-          [x, south + 0.48 * latSpan],
-        ],
-      },
-    });
-    features.push({
-      type: 'Feature',
-      properties: { highway: 'service', name: `Hẻm Nhánh ${i + 5}` },
-      geometry: {
-        type: 'LineString',
-        coordinates: [
-          [x, south + 0.52 * latSpan],
-          [x, south + 0.78 * latSpan],
-        ],
-      },
-    });
-  }
-
-  // 5. River / Canal (Kênh Nhiêu Lộc - Thị Nghè)
+  // Secondary Avenue West (Đường Hai Bà Trưng - 10m wide, crosses canal over bridge)
   features.push({
     type: 'Feature',
-    properties: { waterway: 'canal', name: 'Kênh Nhiêu Lộc' },
+    properties: { highway: 'secondary', name: 'Đường Hai Bà Trưng' },
     geometry: {
       type: 'LineString',
       coordinates: [
-        [west, south + 0.06 * latSpan],
-        [west + 0.35 * lonSpan, south + 0.04 * latSpan],
-        [west + 0.7 * lonSpan, south + 0.08 * latSpan],
-        [east, south + 0.05 * latSpan],
+        [west + 0.28 * lonSpan, south],
+        [west + 0.28 * lonSpan, north],
       ],
     },
   });
 
-  // 6. Tropical Park (Công viên cây xanh)
+  // Secondary Avenue East (Đường Nam Kỳ Khởi Nghĩa - 10m wide, crosses canal over bridge)
   features.push({
     type: 'Feature',
-    properties: { leisure: 'park', name: 'Công Viên Xanh Sài Gòn' },
+    properties: { highway: 'secondary', name: 'Đường Nam Kỳ Khởi Nghĩa' },
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [west + 0.72 * lonSpan, south],
+        [west + 0.72 * lonSpan, north],
+      ],
+    },
+  });
+
+  // ==========================================
+  // 3. RESIDENTIAL CROSS STREETS & CANAL PROMENADES
+  // ==========================================
+  // Residential Street North (Đường Nguyễn Đình Chiểu - 6.5m)
+  features.push({
+    type: 'Feature',
+    properties: { highway: 'residential', name: 'Đường Nguyễn Đình Chiểu' },
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [west, south + 0.86 * latSpan],
+        [east, south + 0.86 * latSpan],
+      ],
+    },
+  });
+
+  // Residential Street Center (Đường Võ Thị Sáu - 6.5m)
+  features.push({
+    type: 'Feature',
+    properties: { highway: 'residential', name: 'Đường Võ Thị Sáu' },
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [west, south + 0.36 * latSpan],
+        [east, south + 0.36 * latSpan],
+      ],
+    },
+  });
+
+  // Canal North Promenade (Đường Hoàng Sa - 7m)
+  features.push({
+    type: 'Feature',
+    properties: { highway: 'residential', name: 'Đường Hoàng Sa (Bờ Kênh)' },
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [west, south + 0.20 * latSpan],
+        [west + 0.28 * lonSpan, south + 0.18 * latSpan],
+        [west + 0.55 * lonSpan, south + 0.19 * latSpan],
+        [west + 0.78 * lonSpan, south + 0.22 * latSpan],
+        [east, south + 0.20 * latSpan],
+      ],
+    },
+  });
+
+  // Canal South Promenade (Đường Trường Sa - 7m)
+  features.push({
+    type: 'Feature',
+    properties: { highway: 'residential', name: 'Đường Trường Sa (Bờ Kênh)' },
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [west, south + 0.11 * latSpan],
+        [west + 0.28 * lonSpan, south + 0.09 * latSpan],
+        [west + 0.55 * lonSpan, south + 0.10 * latSpan],
+        [west + 0.78 * lonSpan, south + 0.13 * latSpan],
+        [east, south + 0.11 * latSpan],
+      ],
+    },
+  });
+
+  // ==========================================
+  // 4. INTERIOR ALLEY NETWORK (Hẻm Sài Gòn - 3.2m)
+  // Alleys run strictly in designated corridors between building parcels
+  // ==========================================
+  // Alley 1: Northwest Block interior alley (East-West at y = 0.72)
+  features.push({
+    type: 'Feature',
+    properties: { highway: 'service', name: 'Hẻm 142 Hai Bà Trưng' },
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [west + 0.04 * lonSpan, south + 0.72 * latSpan],
+        [west + 0.26 * lonSpan, south + 0.72 * latSpan],
+      ],
+    },
+  });
+
+  // Alley 2: Southwest Block interior alley (North-South at x = 0.16)
+  features.push({
+    type: 'Feature',
+    properties: { highway: 'service', name: 'Hẻm 88 Võ Thị Sáu' },
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [west + 0.16 * lonSpan, south + 0.38 * latSpan],
+        [west + 0.16 * lonSpan, south + 0.56 * latSpan],
+      ],
+    },
+  });
+
+  // Alley 3: Center Block interior alley (North-South at x = 0.50)
+  features.push({
+    type: 'Feature',
+    properties: { highway: 'service', name: 'Hẻm 215 Điện Biên Phủ' },
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [west + 0.50 * lonSpan, south + 0.38 * latSpan],
+        [west + 0.50 * lonSpan, south + 0.56 * latSpan],
+      ],
+    },
+  });
+
+  // Alley 4: North-Center Block interior alley (East-West at y = 0.72)
+  features.push({
+    type: 'Feature',
+    properties: { highway: 'service', name: 'Hẻm 304 Nam Kỳ Khởi Nghĩa' },
+    geometry: {
+      type: 'LineString',
+      coordinates: [
+        [west + 0.30 * lonSpan, south + 0.72 * latSpan],
+        [west + 0.70 * lonSpan, south + 0.72 * latSpan],
+      ],
+    },
+  });
+
+  // ==========================================
+  // 5. PARKS & SPORTS COURTYARDS
+  // ==========================================
+  // Tropical Riverside Park along Canal
+  features.push({
+    type: 'Feature',
+    properties: { leisure: 'park', name: 'Công Viên Bờ Kênh Nhiêu Lộc' },
     geometry: {
       type: 'Polygon',
       coordinates: [
         [
-          [west + 0.03 * lonSpan, south + 0.82 * latSpan],
-          [west + 0.22 * lonSpan, south + 0.82 * latSpan],
-          [west + 0.22 * lonSpan, north - 0.02 * latSpan],
-          [west + 0.03 * lonSpan, north - 0.02 * latSpan],
-          [west + 0.03 * lonSpan, south + 0.82 * latSpan],
+          [west + 0.03 * lonSpan, south + 0.23 * latSpan],
+          [west + 0.26 * lonSpan, south + 0.23 * latSpan],
+          [west + 0.26 * lonSpan, south + 0.33 * latSpan],
+          [west + 0.03 * lonSpan, south + 0.33 * latSpan],
+          [west + 0.03 * lonSpan, south + 0.23 * latSpan],
         ],
       ],
     },
   });
 
-  // 7. Dense Saigon Tube Houses (Blocks tightly packed along alleys and streets)
+  // School Courtyard & Sports Field
+  features.push({
+    type: 'Feature',
+    properties: { leisure: 'park', name: 'Sân Thể Thao & Vườn Cây Trường Học' },
+    geometry: {
+      type: 'Polygon',
+      coordinates: [
+        [
+          [west + 0.81 * lonSpan, south + 0.67 * latSpan],
+          [west + 0.94 * lonSpan, south + 0.67 * latSpan],
+          [west + 0.94 * lonSpan, south + 0.76 * latSpan],
+          [west + 0.81 * lonSpan, south + 0.76 * latSpan],
+          [west + 0.81 * lonSpan, south + 0.67 * latSpan],
+        ],
+      ],
+    },
+  });
+
+  // ==========================================
+  // 6. ARCHITECTURAL PARCELS (Strictly collision-free)
+  // ==========================================
   let bldIndex = 1;
-  const blocks = [
-    // [minXFactor, maxXFactor, minYFactor, maxYFactor]
-    [0.03, 0.22, 0.23, 0.47],
-    [0.28, 0.47, 0.23, 0.47],
-    [0.53, 0.72, 0.23, 0.47],
-    [0.78, 0.97, 0.23, 0.47],
 
-    [0.28, 0.47, 0.53, 0.77],
-    [0.53, 0.72, 0.53, 0.77],
-    [0.78, 0.97, 0.53, 0.77],
-  ];
+  // Helper to push a clean rectangular building
+  const addBuilding = (
+    x0Factor: number,
+    x1Factor: number,
+    y0Factor: number,
+    y1Factor: number,
+    name: string,
+    levels: number,
+    isHistoric = false,
+    isWorship = false
+  ) => {
+    const x0 = west + x0Factor * lonSpan;
+    const x1 = west + x1Factor * lonSpan;
+    const y0 = south + y0Factor * latSpan;
+    const y1 = south + y1Factor * latSpan;
+    const height = levels * 3.5;
 
-  for (const [bx0, bx1, by0, by1] of blocks) {
-    const blockWest = west + bx0 * lonSpan;
-    const blockEast = west + bx1 * lonSpan;
-    const blockSouth = south + by0 * latSpan;
-    const blockNorth = south + by1 * latSpan;
+    features.push({
+      type: 'Feature',
+      properties: {
+        building: isHistoric ? 'public' : 'residential',
+        name,
+        'building:levels': String(levels),
+        height: String(height),
+        historic: isHistoric ? 'yes' : undefined,
+        amenity: isWorship ? 'place_of_worship' : undefined,
+      },
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [x0, y0],
+            [x1, y0],
+            [x1, y1],
+            [x0, y1],
+            [x0, y0],
+          ],
+        ],
+      },
+    });
+  };
 
-    const rows = 4;
-    const cols = 5;
-    const houseW = (blockEast - blockWest) / cols;
-    const houseH = (blockNorth - blockSouth) / rows;
+  // ----------------------------------------------------
+  // ZONE A: SAIGON COLONIAL SCHOOL CAMPUS (North-East Block)
+  // U-shaped colonial buildings with terracotta red sloped roofs
+  // ----------------------------------------------------
+  // North Wing (12m x 55m, 3 floors, terracotta roof)
+  addBuilding(0.77, 0.95, 0.79, 0.83, 'Trường THPT Lê Hồng Phong - Dãy Bắc', 3, true);
+  // West Wing (12m x 40m, 3 floors, terracotta roof)
+  addBuilding(0.75, 0.79, 0.67, 0.83, 'Trường THPT Lê Hồng Phong - Dãy Tây', 3, true);
+  // South Wing (12m x 45m, 3 floors, terracotta roof)
+  addBuilding(0.79, 0.95, 0.63, 0.66, 'Trường THPT Lê Hồng Phong - Dãy Nam', 3, true);
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const x0 = blockWest + c * houseW + houseW * 0.08;
-        const x1 = blockWest + (c + 1) * houseW - houseW * 0.08;
-        const y0 = blockSouth + r * houseH + houseH * 0.08;
-        const y1 = blockSouth + (r + 1) * houseH - houseH * 0.08;
+  // ----------------------------------------------------
+  // ZONE B: MODERN CORPORATE TOWERS (Center-East Block)
+  // Tall glass curtain-wall office towers (60m - 75m)
+  // ----------------------------------------------------
+  // Landmark Tower 1 (70m, 20 floors)
+  addBuilding(0.76, 0.84, 0.42, 0.54, 'Tòa Nhà Tài Chính Saigon Tower', 20);
+  // Office Tower 2 (56m, 16 floors)
+  addBuilding(0.87, 0.95, 0.43, 0.53, 'Trung Tâm Thương Mại Metropolitan', 16);
 
-        const levels = 2 + ((r * 3 + c * 7) % 4); // 2 to 5 floors
-        const height = levels * 3.5;
+  // ----------------------------------------------------
+  // ZONE C: SAIGON APARTMENT COMPLEX (North-Center Block)
+  // Long multi-story residential blocks with balconies
+  // ----------------------------------------------------
+  // Apartment Block 1 (30m, 8 floors)
+  addBuilding(0.33, 0.67, 0.75, 0.82, 'Chung Cư Hào Sĩ Phường - Block A', 8);
+  // Apartment Block 2 (28m, 7 floors)
+  addBuilding(0.33, 0.67, 0.63, 0.69, 'Chung Cư Hào Sĩ Phường - Block B', 7);
 
-        features.push({
-          type: 'Feature',
-          properties: {
-            building: 'residential',
-            name: `Nhà phố ${bldIndex++}`,
-            'building:levels': String(levels),
-            height: String(height),
-          },
-          geometry: {
-            type: 'Polygon',
-            coordinates: [
-              [
-                [x0, y0],
-                [x1, y0],
-                [x1, y1],
-                [x0, y1],
-                [x0, y0],
-              ],
-            ],
-          },
-        });
-      }
+  // ----------------------------------------------------
+  // ZONE D: HISTORIC PAGODA (Southwest Riverside)
+  // Traditional curved sloped roof with golden trims
+  // ----------------------------------------------------
+  addBuilding(0.08, 0.18, 0.25, 0.31, 'Chùa Vĩnh Nghiêm (Di Tích Lịch Sử)', 2, true, true);
+
+  // ----------------------------------------------------
+  // ZONE E: DENSE SAIGON TUBE HOUSE QUARTERS (Nhà Phố Sài Gòn)
+  // Every house is placed strictly along street and alley frontages with zero collisions!
+  // ----------------------------------------------------
+  // E1. Northwest Block: Houses along Alley 1 (y = 0.72)
+  // Row North of Alley (facing south onto alley, setback y: 0.74 to 0.83)
+  const nwCols = 6;
+  const nwW = (0.25 - 0.04) / nwCols;
+  for (let c = 0; c < nwCols; c++) {
+    const x0 = 0.04 + c * nwW + 0.003;
+    const x1 = 0.04 + (c + 1) * nwW - 0.003;
+    const levels = 2 + ((c * 3) % 4);
+    addBuilding(x0, x1, 0.745, 0.835, `Nhà phố Hẻm 142 #${c + 1}`, levels);
+  }
+  // Row South of Alley (facing north onto alley, setback y: 0.61 to 0.695)
+  for (let c = 0; c < nwCols; c++) {
+    const x0 = 0.04 + c * nwW + 0.003;
+    const x1 = 0.04 + (c + 1) * nwW - 0.003;
+    const levels = 3 + ((c * 2) % 3);
+    addBuilding(x0, x1, 0.615, 0.695, `Nhà phố Hẻm 142 #${c + 7}`, levels);
+  }
+
+  // E2. Southwest Block: Houses along Alley 2 (x = 0.16)
+  // West Row (setback x: 0.04 to 0.135, facing east onto alley)
+  const swRows = 4;
+  const swH = (0.55 - 0.39) / swRows;
+  for (let r = 0; r < swRows; r++) {
+    const y0 = 0.39 + r * swH + 0.003;
+    const y1 = 0.39 + (r + 1) * swH - 0.003;
+    const levels = 2 + ((r * 5) % 4);
+    addBuilding(0.04, 0.135, y0, y1, `Nhà phố Hẻm 88 #${r + 1}`, levels);
+  }
+  // East Row (setback x: 0.185 to 0.255, facing west onto alley)
+  for (let r = 0; r < swRows; r++) {
+    const y0 = 0.39 + r * swH + 0.003;
+    const y1 = 0.39 + (r + 1) * swH - 0.003;
+    const levels = 3 + ((r * 7) % 3);
+    addBuilding(0.185, 0.255, y0, y1, `Nhà phố Hẻm 88 #${r + 5}`, levels);
+  }
+
+  // E3. Center Block: Houses along Boulevard (y = 0.58) and Alley 3 (x = 0.50)
+  // Center-West sub-block (x: 0.32 to 0.47, y: 0.40 to 0.54)
+  const cwCols = 4;
+  const cwRows = 3;
+  const cwW = (0.47 - 0.32) / cwCols;
+  const cwH = (0.54 - 0.40) / cwRows;
+  for (let r = 0; r < cwRows; r++) {
+    for (let c = 0; c < cwCols; c++) {
+      const x0 = 0.32 + c * cwW + 0.003;
+      const x1 = 0.32 + (c + 1) * cwW - 0.003;
+      const y0 = 0.40 + r * cwH + 0.003;
+      const y1 = 0.40 + (r + 1) * cwH - 0.003;
+      const levels = 2 + ((r * 3 + c * 7) % 4);
+      addBuilding(x0, x1, y0, y1, `Nhà phố Điện Biên Phủ #${bldIndex++}`, levels);
     }
+  }
+
+  // Center-East sub-block (x: 0.53 to 0.68, y: 0.40 to 0.54)
+  const ceCols = 4;
+  const ceRows = 3;
+  const ceW = (0.68 - 0.53) / ceCols;
+  const ceH = (0.54 - 0.40) / ceRows;
+  for (let r = 0; r < ceRows; r++) {
+    for (let c = 0; c < ceCols; c++) {
+      const x0 = 0.53 + c * ceW + 0.003;
+      const x1 = 0.53 + (c + 1) * ceW - 0.003;
+      const y0 = 0.40 + r * ceH + 0.003;
+      const y1 = 0.40 + (r + 1) * ceH - 0.003;
+      const levels = 3 + ((r * 4 + c * 5) % 3);
+      addBuilding(x0, x1, y0, y1, `Nhà phố Điện Biên Phủ #${bldIndex++}`, levels);
+    }
+  }
+
+  // E4. Southeast Block: Waterfront Shophouses along Canal (x: 0.32 to 0.68, y: 0.23 to 0.33)
+  const wfCols = 8;
+  const wfW = (0.68 - 0.32) / wfCols;
+  for (let c = 0; c < wfCols; c++) {
+    const x0 = 0.32 + c * wfW + 0.003;
+    const x1 = 0.32 + (c + 1) * wfW - 0.003;
+    const levels = 3 + (c % 3);
+    addBuilding(x0, x1, 0.24, 0.33, `Nhà phố Bờ Kênh Hoàng Sa #${c + 1}`, levels);
+  }
+
+  // E5. Far Southeast Block: Canal-side villas & cafes (x: 0.76 to 0.95, y: 0.25 to 0.34)
+  const feCols = 4;
+  const feW = (0.95 - 0.76) / feCols;
+  for (let c = 0; c < feCols; c++) {
+    const x0 = 0.76 + c * feW + 0.003;
+    const x1 = 0.76 + (c + 1) * feW - 0.003;
+    const levels = 3 + ((c * 2) % 3);
+    addBuilding(x0, x1, 0.25, 0.33, `Biệt thự Phố Bờ Kênh #${c + 1}`, levels);
   }
 
   return {

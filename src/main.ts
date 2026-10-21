@@ -338,8 +338,23 @@ class SaigonShipperApp {
       // 5E. 1,500+ Lush Tropical Trees (InstancedMesh - 1 Draw Call)
       const treePositions: Array<{ x: number; z: number; scale?: number }> = [];
 
-      // Trees along sidewalks and canal banks
+      // Trees along sidewalks, canal promenades, and courtyards (Filtered against buildings!)
+      const isInsideAnyBuilding = (tx: number, tz: number) => {
+        for (const b of fusionResult.buildings) {
+          if (
+            tx >= b.bbox.minX - 0.8 &&
+            tx <= b.bbox.maxX + 0.8 &&
+            tz >= b.bbox.minZ - 0.8 &&
+            tz <= b.bbox.maxZ + 0.8
+          ) {
+            return true;
+          }
+        }
+        return false;
+      };
+
       for (const edge of fusionResult.roadGraph.edges) {
+        if (edge.isAlley) continue; // Alleys are narrow shared spaces, keep clear for motorcycles!
         const n1 = fusionResult.roadGraph.nodes.get(edge.fromId);
         const n2 = fusionResult.roadGraph.nodes.get(edge.toId);
         if (n1 && n2) {
@@ -351,9 +366,18 @@ class SaigonShipperApp {
             const midZ = n1.z + (n2.z - n1.z) * t;
             const perpX = -(n2.z - n1.z) / (dist || 1);
             const perpZ = (n2.x - n1.x) / (dist || 1);
-            const offset = edge.isAlley ? 2.6 : 7.2;
-            treePositions.push({ x: midX + perpX * offset, z: midZ + perpZ * offset, scale: 0.8 + Math.random() * 0.4 });
-            treePositions.push({ x: midX - perpX * offset, z: midZ - perpZ * offset, scale: 0.8 + Math.random() * 0.4 });
+
+            // Sidewalk tree line (5.8m from road centerline)
+            const offset = 5.8;
+            const t1 = { x: midX + perpX * offset, z: midZ + perpZ * offset };
+            const t2 = { x: midX - perpX * offset, z: midZ - perpZ * offset };
+
+            if (!isInsideAnyBuilding(t1.x, t1.z)) {
+              treePositions.push({ x: t1.x, z: t1.z, scale: 0.85 + Math.random() * 0.35 });
+            }
+            if (!isInsideAnyBuilding(t2.x, t2.z)) {
+              treePositions.push({ x: t2.x, z: t2.z, scale: 0.85 + Math.random() * 0.35 });
+            }
           }
         }
       }

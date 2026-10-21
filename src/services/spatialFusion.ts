@@ -131,23 +131,11 @@ export function performSpatialFusion(
 
       if (geom.type === 'LineString' || geom.type === 'MultiLineString') {
         try {
+          // Buffer road for collision tree only (buildings & trees use this to avoid collisions)
           const buffered = turf.buffer(feature, config.radiusKm, { units: 'kilometers' });
           if (buffered) {
             const [minX, minY, maxX, maxY] = turf.bbox(buffered);
             roadTree.insert({ minX, minY, maxX, maxY, feature: buffered });
-
-            const polyRings = extractPolygonRings((buffered as any).geometry);
-            for (const singlePoly of polyRings) {
-              const metricRings = projectRings(projection, singlePoly);
-              roadPolygonItems.push({
-                id: `road_${props.id || Math.random()}`,
-                name: props.name || (config.isAlley ? 'Hẻm Sài Gòn' : 'Đường đô thị'),
-                highway: highwayType,
-                isAlley: config.isAlley,
-                width: config.width,
-                rings: metricRings,
-              });
-            }
           }
         } catch (e) {
           // Skip buffer error
@@ -158,6 +146,7 @@ export function performSpatialFusion(
           const coords = geom.coordinates as [number, number][];
           const path = coords.map(([lon, lat]) => projection.project(lon, lat));
 
+          // Added ONCE as clean continuous road ribbon (No duplicate polygon sausages!)
           roadPolygonItems.push({
             id: `road_line_${props.id || Math.random()}`,
             name: props.name || (config.isAlley ? 'Hẻm Sài Gòn' : 'Đường đô thị'),
@@ -311,23 +300,56 @@ export function performSpatialFusion(
       height = levels * 3.5;
     }
 
-    // Colors
+    let bbox: number[];
+    try {
+      bbox = turf.bbox(feature);
+    } catch (e) {
+      continue;
+    }
+
+    const [minX, minY, maxX, maxY] = bbox;
+    const searchBox = { minX, minY, maxX, maxY };
+
+    // Collision filter: discard any building whose centroid falls within the road buffer
+    const roadCandidates = roadTree.search(searchBox);
+    let collidesWithRoad = false;
+    if (roadCandidates.length > 0) {
+      try {
+        const centerPt = turf.point([(minX + maxX) / 2, (minY + maxY) / 2]);
+        for (const cand of roadCandidates) {
+          if (turf.booleanPointInPolygon(centerPt, cand.feature)) {
+            collidesWithRoad = true;
+            break;
+          }
+        }
+      } catch (e) {}
+    }
+    if (collidesWithRoad) continue;
+
     // Colors - Clean, vibrant, cheerful Saigon urban architectural palette
     let color = SAIGON_PALETTES.cream;
     if (isHistoric || isWorship) {
-      color = SAIGON_PALETTES.historicRed;
+      color = SAIGON_PALETTES.colonialYellow;
     } else if (height > 35) {
       color = SAIGON_PALETTES.towerNavy;
     } else {
       const palList = [
         SAIGON_PALETTES.yellowOchre,
+        SAIGON_PALETTES.warmGold,
+        SAIGON_PALETTES.vanillaIvory,
         SAIGON_PALETTES.cream,
-        SAIGON_PALETTES.warmOchre,
-        SAIGON_PALETTES.salmonCoral,
+        SAIGON_PALETTES.pastelTurquoise,
         SAIGON_PALETTES.mintGreen,
+        SAIGON_PALETTES.freshSage,
+        SAIGON_PALETTES.salmonCoral,
+        SAIGON_PALETTES.salmonPeach,
+        SAIGON_PALETTES.warmCoral,
+        SAIGON_PALETTES.skyBlue,
+        SAIGON_PALETTES.softPeriwinkle,
         SAIGON_PALETTES.pearlWhite,
+        SAIGON_PALETTES.concreteGrey,
       ];
-      const h = hashString(props.name || `bld_${height}`);
+      const h = hashString(props.name || `bld_${height}_${Math.round(minX * 1000)}`);
       color = palList[h % palList.length];
     }
 
@@ -436,11 +458,19 @@ export function performSpatialFusion(
 
       const palList = [
         SAIGON_PALETTES.yellowOchre,
+        SAIGON_PALETTES.warmGold,
+        SAIGON_PALETTES.vanillaIvory,
         SAIGON_PALETTES.cream,
-        SAIGON_PALETTES.warmOchre,
-        SAIGON_PALETTES.salmonCoral,
+        SAIGON_PALETTES.pastelTurquoise,
         SAIGON_PALETTES.mintGreen,
+        SAIGON_PALETTES.freshSage,
+        SAIGON_PALETTES.salmonCoral,
+        SAIGON_PALETTES.salmonPeach,
+        SAIGON_PALETTES.warmCoral,
+        SAIGON_PALETTES.skyBlue,
+        SAIGON_PALETTES.softPeriwinkle,
         SAIGON_PALETTES.pearlWhite,
+        SAIGON_PALETTES.concreteGrey,
       ];
       const color = palList[hash % palList.length];
 

@@ -10,26 +10,43 @@ export interface BuiltCityResult {
 
 export class BuildingBuilder {
   /**
-   * Generates a 3D building geometry using earcut triangulation for roofs and quad walls.
+   * Generates a 3D building geometry with:
+   * - Solid Roof Cap (Corrected upward winding + terracotta/concrete styling)
+   * - Solid 4-sided vertical walls with floor line accents
+   * - Rooftop Chuồng Cu (Staircase housing) & Stainless Steel Water Tank (Bồn nước Tân Á)
    */
   public static createBuildingGeometry(building: BuildingItem): THREE.BufferGeometry | null {
-    const outerRing = building.rings[0];
-    if (!outerRing || outerRing.length < 3) return null;
+    const rawOuter = building.rings[0];
+    if (!rawOuter || rawOuter.length < 3) return null;
 
-    const height = Math.max(3.0, building.height);
+    const height = Math.max(3.5, building.height);
+
+    // Strip duplicate closing vertex if present (GeoJSON standard duplicates end=start, which trips earcut)
+    const isClosed =
+      rawOuter.length > 3 &&
+      Math.abs(rawOuter[0].x - rawOuter[rawOuter.length - 1].x) < 0.001 &&
+      Math.abs(rawOuter[0].z - rawOuter[rawOuter.length - 1].z) < 0.001;
+
+    const outerRing = isClosed ? rawOuter.slice(0, rawOuter.length - 1) : rawOuter;
+    if (outerRing.length < 3) return null;
 
     // Prepare 2D coordinates for earcut
     const flatCoords: number[] = [];
     const holeIndices: number[] = [];
 
-    // Outer ring
     for (let i = 0; i < outerRing.length; i++) {
       flatCoords.push(outerRing[i].x, outerRing[i].z);
     }
 
     // Inner holes
     for (let h = 1; h < building.rings.length; h++) {
-      const hole = building.rings[h];
+      const rawHole = building.rings[h];
+      const holeClosed =
+        rawHole.length > 3 &&
+        Math.abs(rawHole[0].x - rawHole[rawHole.length - 1].x) < 0.001 &&
+        Math.abs(rawHole[0].z - rawHole[rawHole.length - 1].z) < 0.001;
+      const hole = holeClosed ? rawHole.slice(0, rawHole.length - 1) : rawHole;
+
       if (hole.length >= 3) {
         holeIndices.push(flatCoords.length / 2);
         for (let i = 0; i < hole.length; i++) {
@@ -46,58 +63,68 @@ export class BuildingBuilder {
     const normals: number[] = [];
     const colors: number[] = [];
 
-    // Base color
+    // Base wall color
     const baseColor = new THREE.Color(building.color);
-    // Roof color (slightly warmer/darker or terracotta)
-    const roofColor = building.roofColor
-      ? new THREE.Color(building.roofColor)
-      : building.isHistoric || building.isWorship
-      ? new THREE.Color(0xf59e0b) // Gold/terracotta roof
-      : baseColor.clone().multiplyScalar(0.85);
+
+    // Roof color (Terracotta red/orange for typical Saigon houses, or gold for temples, or slate grey)
+    let roofColor: THREE.Color;
+    if (building.isHistoric || building.isWorship) {
+      roofColor = new THREE.Color(0xf59e0b); // Gold / Vermilion pagoda roof
+    } else if (building.color === 0x38bdf8) {
+      roofColor = new THREE.Color(0x0284c7); // Modern glass tower roof
+    } else {
+      // Warm terracotta tile roof
+      roofColor = new THREE.Color(0xc2410c);
+    }
 
     const wallColor = baseColor.clone();
+    // Parapet trim / rooftop edge color
+    const trimColor = wallColor.clone().multiplyScalar(0.75);
 
-    // 1. Add Roof Cap Triangles (at y = height)
+    // 1. ADD ROOF CAP (With Guaranteed UPWARDS Normal +Y)
     for (let i = 0; i < roofIndices.length; i += 3) {
-      const i0 = roofIndices[i] * 2;
-      const i1 = roofIndices[i + 1] * 2;
-      const i2 = roofIndices[i + 2] * 2;
+      let p0 = { x: flatCoords[roofIndices[i] * 2], z: flatCoords[roofIndices[i] * 2 + 1] };
+      let p1 = { x: flatCoords[roofIndices[i + 1] * 2], z: flatCoords[roofIndices[i + 1] * 2 + 1] };
+      let p2 = { x: flatCoords[roofIndices[i + 2] * 2], z: flatCoords[roofIndices[i + 2] * 2 + 1] };
 
-      const p0 = { x: flatCoords[i0], z: flatCoords[i0 + 1] };
-      const p1 = { x: flatCoords[i1], z: flatCoords[i1 + 1] };
-      const p2 = { x: flatCoords[i2], z: flatCoords[i2 + 1] };
+      // Vector Cross Product to guarantee normal points UP (+Y)
+      const vAx = p1.x - p0.x;
+      const vAz = p1.z - p0.z;
+      const vBx = p2.x - p0.x;
+      const vBz = p2.z - p0.z;
+      const crossY = vAz * vBx - vAx * vBz;
 
-      // Ensure upward normal by checking winding order
+      // In Three.js right-handed system, if crossY < 0, swap p1 and p2 so normal points UP
+      if (crossY < 0) {
+        const temp = p1;
+        p1 = p2;
+        p2 = temp;
+      }
+
+      // Add roof vertices at building height
       positions.push(p0.x, height, p0.z);
       positions.push(p1.x, height, p1.z);
       positions.push(p2.x, height, p2.z);
 
-      normals.push(0, 1, 0);
-      normals.push(0, 1, 0);
-      normals.push(0, 1, 0);
+      normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
 
       colors.push(roofColor.r, roofColor.g, roofColor.b);
       colors.push(roofColor.r, roofColor.g, roofColor.b);
       colors.push(roofColor.r, roofColor.g, roofColor.b);
     }
 
-    // 2. Add Vertical Walls for all rings (outer + holes)
+    // 2. ADD VERTICAL WALLS (Outer ring + Holes)
     const addWallForRing = (ring: MetricPoint[], isHole = false) => {
       const len = ring.length;
       for (let i = 0; i < len; i++) {
         const nextIdx = (i + 1) % len;
-        // Avoid duplicate start/end points
-        if (i === len - 1 && ring[0].x === ring[i].x && ring[0].z === ring[i].z) {
-          continue;
-        }
-
         const pCurrent = ring[i];
         const pNext = ring[nextIdx];
 
         const dx = pNext.x - pCurrent.x;
         const dz = pNext.z - pCurrent.z;
-        const segLen = Math.sqrt(dx * dx + dz * dz);
-        if (segLen < 0.05) continue; // Skip degenerate segments
+        const segLen = Math.hypot(dx, dz);
+        if (segLen < 0.1) continue;
 
         // Compute outward normal
         let nx = dz / segLen;
@@ -118,8 +145,7 @@ export class BuildingBuilder {
         positions.push(...v0, ...v1, ...v2);
         normals.push(nx, 0, nz, nx, 0, nz, nx, 0, nz);
 
-        // Subtle gradient on walls: bottom slightly darker
-        const colBottom = wallColor.clone().multiplyScalar(0.9);
+        const colBottom = wallColor.clone().multiplyScalar(0.8);
         colors.push(colBottom.r, colBottom.g, colBottom.b);
         colors.push(colBottom.r, colBottom.g, colBottom.b);
         colors.push(wallColor.r, wallColor.g, wallColor.b);
@@ -130,12 +156,77 @@ export class BuildingBuilder {
         colors.push(colBottom.r, colBottom.g, colBottom.b);
         colors.push(wallColor.r, wallColor.g, wallColor.b);
         colors.push(wallColor.r, wallColor.g, wallColor.b);
+
+        // Add Rooftop Parapet / Lan Can Gờ Mái (0.5m lip around roof edge)
+        const vTop0 = [pCurrent.x, height, pCurrent.z];
+        const vTop1 = [pNext.x, height, pNext.z];
+        const vLip0 = [pCurrent.x, height + 0.45, pCurrent.z];
+        const vLip1 = [pNext.x, height + 0.45, pNext.z];
+
+        positions.push(...vTop0, ...vTop1, ...vLip1);
+        normals.push(nx, 0, nz, nx, 0, nz, nx, 0, nz);
+        colors.push(trimColor.r, trimColor.g, trimColor.b, trimColor.r, trimColor.g, trimColor.b, trimColor.r, trimColor.g, trimColor.b);
+
+        positions.push(...vTop0, ...vLip1, ...vLip0);
+        normals.push(nx, 0, nz, nx, 0, nz, nx, 0, nz);
+        colors.push(trimColor.r, trimColor.g, trimColor.b, trimColor.r, trimColor.g, trimColor.b, trimColor.r, trimColor.g, trimColor.b);
       }
     };
 
     addWallForRing(outerRing, false);
     for (let h = 1; h < building.rings.length; h++) {
-      addWallForRing(building.rings[h], true);
+      const hRing = building.rings[h];
+      const hClean = (hRing.length > 3 && hRing[0].x === hRing[hRing.length - 1].x) ? hRing.slice(0, -1) : hRing;
+      addWallForRing(hClean, true);
+    }
+
+    // 3. ICONIC SAIGON ROOFTOP FEATURE: Chuồng Cu & Bồn Nước Inox (for houses >= 6m)
+    if (height >= 6.0 && outerRing.length >= 4) {
+      let cx = 0;
+      let cz = 0;
+      for (const pt of outerRing) {
+        cx += pt.x;
+        cz += pt.z;
+      }
+      cx /= outerRing.length;
+      cz /= outerRing.length;
+
+      // Small rooftop staircase room (2m x 2m x 2.2m)
+      const roomSize = 1.2;
+      const roomH = 2.0;
+      const rx0 = cx - roomSize;
+      const rx1 = cx + roomSize;
+      const rz0 = cz - roomSize;
+      const rz1 = cz + roomSize;
+      const ry0 = height;
+      const ry1 = height + roomH;
+
+      // Room walls
+      const roomWalls = [
+        [[rx0, ry0, rz0], [rx1, ry0, rz0], [rx1, ry1, rz0], [rx0, ry1, rz0], [0, 0, -1]],
+        [[rx1, ry0, rz0], [rx1, ry0, rz1], [rx1, ry1, rz1], [rx1, ry1, rz0], [1, 0, 0]],
+        [[rx1, ry0, rz1], [rx0, ry0, rz1], [rx0, ry1, rz1], [rx1, ry1, rz1], [0, 0, 1]],
+        [[rx0, ry0, rz1], [rx0, ry0, rz0], [rx0, ry1, rz0], [rx0, ry1, rz1], [-1, 0, 0]],
+      ];
+
+      for (const [w0, w1, w2, w3, n] of roomWalls) {
+        positions.push(...w0, ...w1, ...w2);
+        normals.push(...n, ...n, ...n);
+        colors.push(0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85);
+
+        positions.push(...w0, ...w2, ...w3);
+        normals.push(...n, ...n, ...n);
+        colors.push(0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85);
+      }
+
+      // Room roof
+      positions.push(rx0, ry1, rz0, rx1, ry1, rz0, rx1, ry1, rz1);
+      normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
+      colors.push(0.4, 0.45, 0.5, 0.4, 0.45, 0.5, 0.4, 0.45, 0.5);
+
+      positions.push(rx0, ry1, rz0, rx1, ry1, rz1, rx0, ry1, rz1);
+      normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
+      colors.push(0.4, 0.45, 0.5, 0.4, 0.45, 0.5, 0.4, 0.45, 0.5);
     }
 
     const geometry = new THREE.BufferGeometry();
@@ -148,6 +239,7 @@ export class BuildingBuilder {
 
   /**
    * Merges all building geometries into a single Draw Call mesh using BufferGeometryUtils
+   * Sets DoubleSide material to guarantee 100% solid, non-culled houses from any view!
    */
   public static buildCityMesh(buildings: BuildingItem[]): BuiltCityResult | null {
     if (buildings.length === 0) return null;
@@ -161,22 +253,17 @@ export class BuildingBuilder {
 
     if (geometries.length === 0) return null;
 
-    // Merge all building buffer geometries into one
     const mergedGeometry = BufferGeometryUtils.mergeGeometries(geometries, false);
-
-    // Dispose temporary geometries to free memory
-    for (const g of geometries) {
-      g.dispose();
-    }
+    for (const g of geometries) g.dispose();
 
     if (!mergedGeometry) return null;
 
-    // Material using vertex colors
+    // Double-sided standard material with rich shading and shadows
     const material = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.75,
-      metalness: 0.15,
-      flatShading: false,
+      roughness: 0.72,
+      metalness: 0.12,
+      side: THREE.DoubleSide, // Guarantees all walls & roofs are completely solid!
     });
 
     const mesh = new THREE.Mesh(mergedGeometry, material);

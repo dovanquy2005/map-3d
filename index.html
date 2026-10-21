@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Saigon Shipper 3D RPG | 3D GIS Metric City Generator</title>
+    <meta name="description" content="Chuyển đổi dữ liệu bản đồ OpenStreetMap & VIDA Open Buildings thành thế giới 3D thực thụ theo tỉ lệ Mét cho Game Nhập Vai Shipper Sài Gòn." />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app-container">
+      <!-- 3D Three.js Canvas Container -->
+      <div id="three-canvas-container"></div>
+
+      <!-- Left Sidebar Gaming HUD Overlay -->
+      <aside id="hud-sidebar" class="glass-panel">
+        <!-- Brand Header -->
+        <div class="brand-header">
+          <div class="brand-title">
+            <span>🛵 SAIGON SHIPPER</span>
+          </div>
+          <div style="display: flex; gap: 4px; align-items: center;">
+            <span class="badge-tag country-badge" id="badge-country">VN</span>
+            <span class="badge-tag">PHASE 1</span>
+          </div>
+        </div>
+
+        <!-- Area Address & Coordinates -->
+        <div class="area-info-card">
+          <div class="area-label">
+            <span>Khu vực mục tiêu</span>
+            <span id="label-status" style="color: #34d399; font-weight: 700;">● Sẵn sàng</span>
+          </div>
+          <div class="area-name" id="area-title">Bến Nghé, Quận 1, TP. Hồ Chí Minh</div>
+          <div class="coords-mono" id="area-coords">10.7756° N, 106.7019° E (~440m × 440m)</div>
+        </div>
+
+        <!-- Camera / Game Mode Switcher -->
+        <div class="mode-toggle-group">
+          <button id="btn-mode-orbit" class="btn-mode active" title="Góc nhìn tự do xoay quanh thành phố">
+            <span>🔭 Xem (Orbit)</span>
+          </button>
+          <button id="btn-mode-shipper" class="btn-mode" title="Chế độ lái xe máy giao hàng qua hẻm phố Sài Gòn">
+            <span>🛵 Chạy xe (WASD)</span>
+          </button>
+        </div>
+
+        <!-- 2D Leaflet Area Selector -->
+        <div class="minimap-wrapper">
+          <div class="section-label">
+            <span>📍 Chọn vị trí trên Bản đồ 2D</span>
+          </div>
+          <div id="leaflet-minimap"></div>
+        </div>
+
+        <!-- Saigon Quick Presets -->
+        <div class="section-label">
+          <span>⚡ Địa điểm tiêu biểu Sài Gòn</span>
+        </div>
+        <div class="preset-grid">
+          <button class="btn-preset" data-preset="ben-thanh">
+            <span>🏛️</span>
+            <div>
+              <div>Bến Thành</div>
+              <div style="font-size: 0.65rem; color: #94a3b8;">Quận 1</div>
+            </div>
+          </button>
+          <button class="btn-preset" data-preset="xom-chieu">
+            <span>🛵</span>
+            <div>
+              <div>Hẻm Xóm Chiếu</div>
+              <div style="font-size: 0.65rem; color: #94a3b8;">Quận 4</div>
+            </div>
+          </button>
+          <button class="btn-preset" data-preset="landmark-81">
+            <span>🏙️</span>
+            <div>
+              <div>Landmark 81</div>
+              <div style="font-size: 0.65rem; color: #94a3b8;">Bình Thạnh</div>
+            </div>
+          </button>
+          <button class="btn-preset" data-preset="cho-lon">
+            <span>🏮</span>
+            <div>
+              <div>Chợ Lớn</div>
+              <div style="font-size: 0.65rem; color: #94a3b8;">Quận 5</div>
+            </div>
+          </button>
+        </div>
+
+        <!-- Build Action Button -->
+        <button id="btn-build-area" class="btn-build-main">
+          <div class="spinner" id="build-spinner"></div>
+          <span id="btn-build-text">🚀 DỰNG KHU NÀY (BUILD 3D)</span>
+        </button>
+
+        <!-- Real-time Hardware Metrics -->
+        <div class="metrics-row">
+          <div class="metric-pill">
+            <span class="metric-label">Draw Calls:</span>
+            <span class="metric-val" id="metric-drawcalls">0</span>
+          </div>
+          <div class="metric-pill">
+            <span class="metric-label">Tam giác:</span>
+            <span class="metric-val" id="metric-triangles">0</span>
+          </div>
+          <div class="metric-pill">
+            <span class="metric-label">FPS:</span>
+            <span class="metric-val" id="metric-fps" style="color: #34d399;">60</span>
+          </div>
+        </div>
+
+        <!-- Real-time Pipeline Telemetry Log -->
+        <div class="telemetry-box">
+          <div class="section-label">
+            <span>📟 Nhật ký Xử lý Không gian (GIS Pipeline)</span>
+          </div>
+          <div class="telemetry-console" id="telemetry-log">
+            <div class="log-entry log-info">[Khởi động] Hệ thống 3D GIS Game-Ready đã nạp thành công.</div>
+            <div class="log-entry log-info">[Hướng dẫn] Bấm "Dựng khu này" hoặc chọn 1 địa điểm để tạo thế giới 3D.</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- In-Game Shipper Driving HUD -->
+      <div id="shipper-hud">
+        <div class="current-street-badge">
+          <span>📍</span>
+          <span id="hud-street-name">Đang dò tìm mặt đường...</span>
+        </div>
+
+        <div class="speedometer-card" id="hud-speedometer-card">
+          <span class="speed-number" id="hud-speed-value">0</span>
+          <span class="speed-unit">KM/H</span>
+        </div>
+
+        <div class="controls-hint-card">
+          <div><span class="key-badge">W</span> / <span class="key-badge">↑</span> Ga &nbsp; <span class="key-badge">S</span> / <span class="key-badge">↓</span> Lùi</div>
+          <div><span class="key-badge">A</span> <span class="key-badge">D</span> / <span class="key-badge">←</span> <span class="key-badge">→</span> Lái & Nghiêng xe</div>
+          <div><span class="key-badge">SPACE</span> Thắng &nbsp; <span class="key-badge">R</span> Đặt lại xe</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

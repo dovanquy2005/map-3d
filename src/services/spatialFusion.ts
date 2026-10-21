@@ -105,7 +105,10 @@ export function performSpatialFusion(
   let osmWaterCount = 0;
   let osmParksCount = 0;
 
-  // 1. Process OSM features
+  // =========================================================================
+  // PASS 1: Index Waterways, Water Bodies, Parks & Buildings FIRST
+  // This guarantees waterTree is fully populated so road bridges can be accurately detected!
+  // =========================================================================
   for (const feature of osmFeatures) {
     const props = feature.properties || {};
     const geom = feature.geometry;
@@ -118,96 +121,10 @@ export function performSpatialFusion(
       try {
         const [minX, minY, maxX, maxY] = turf.bbox(feature);
         osmBuildingTree.insert({ minX, minY, maxX, maxY, feature });
-      } catch (e) {
-        // Skip invalid bbox
-      }
+      } catch (e) {}
     }
 
-    // B. OSM Roads & Alleys
-    else if (props.highway) {
-      osmRoadsCount++;
-      const highwayType = props.highway;
-      const config = ROAD_BUFFER_CONFIG[highwayType] || { width: 5.0, radiusKm: 0.0025, isAlley: false };
-
-      if (geom.type === 'LineString' || geom.type === 'MultiLineString') {
-        try {
-          // Buffer road for collision tree only (buildings & trees use this to avoid collisions)
-          const buffered = turf.buffer(feature, config.radiusKm, { units: 'kilometers' });
-          if (buffered) {
-            const [minX, minY, maxX, maxY] = turf.bbox(buffered);
-            roadTree.insert({ minX, minY, maxX, maxY, feature: buffered });
-          }
-        } catch (e) {
-          // Skip buffer error
-        }
-
-        // Build Continuous Road Ribbons & Graph from LineString
-        if (geom.type === 'LineString') {
-          const coords = geom.coordinates as [number, number][];
-          const path = coords.map(([lon, lat]) => projection.project(lon, lat));
-
-          // Added ONCE as clean continuous road ribbon (No duplicate polygon sausages!)
-          roadPolygonItems.push({
-            id: `road_line_${props.id || Math.random()}`,
-            name: props.name || (config.isAlley ? 'Hẻm Sài Gòn' : 'Đường đô thị'),
-            highway: highwayType,
-            isAlley: config.isAlley,
-            width: config.width,
-            rings: [],
-            path,
-          });
-
-          let prevNodeId: string | null = null;
-
-          for (let i = 0; i < coords.length; i++) {
-            const [lon, lat] = coords[i];
-            const pt = projection.project(lon, lat);
-
-            // Grid quantize key (snap to nearest 1 meter)
-            const snapKey = `${Math.round(pt.x)}_${Math.round(pt.z)}`;
-            let node = graphNodes.get(snapKey);
-
-            if (!node) {
-              node = {
-                id: snapKey,
-                lat,
-                lon,
-                x: pt.x,
-                z: pt.z,
-                neighborIds: [],
-              };
-              graphNodes.set(snapKey, node);
-            }
-
-            if (prevNodeId && prevNodeId !== node.id) {
-              const prevNode: RoadGraphNode | undefined = graphNodes.get(prevNodeId);
-              if (prevNode) {
-                if (!prevNode.neighborIds.includes(node.id)) {
-                  prevNode.neighborIds.push(node.id);
-                }
-                if (!node.neighborIds.includes(prevNodeId)) {
-                  node.neighborIds.push(prevNodeId);
-                }
-
-                const dist = GeoProjection.distance(prevNode, node);
-                graphEdges.push({
-                  fromId: prevNodeId,
-                  toId: node.id,
-                  lengthMeters: dist,
-                  highway: highwayType,
-                  name: props.name || (config.isAlley ? 'Hẻm Sài Gòn' : 'Đường'),
-                  isAlley: config.isAlley,
-                });
-              }
-            }
-
-            prevNodeId = node.id;
-          }
-        }
-      }
-    }
-
-    // C. Waterways & Water Bodies
+    // B. Waterways & Water Bodies (Rivers, Canals, Lakes)
     else if (props.natural === 'water' || props.waterway || props.water) {
       osmWaterCount++;
       try {
@@ -231,12 +148,10 @@ export function performSpatialFusion(
             });
           }
         }
-      } catch (e) {
-        // Skip
-      }
+      } catch (e) {}
     }
 
-    // D. Parks & Leisure
+    // C. Parks & Leisure Grounds
     else if (props.leisure === 'park' || props.landuse === 'grass' || props.landuse === 'recreation_ground') {
       osmParksCount++;
       try {
@@ -248,8 +163,176 @@ export function performSpatialFusion(
             rings: projectRings(projection, singlePoly),
           });
         }
-      } catch (e) {
-        // Skip
+      } catch (e) {}
+    }
+  }
+
+  // =========================================================================
+  // PASS 2: Process Roads, Alleys, Bridges & Elevated Flyovers
+  // Recognizes bridges via OSM tags, positive layers, bridge names, and water cross-checks!
+  // =========================================================================
+  for (const feature of osmFeatures) {
+    const props = feature.properties || {};
+    const geom = feature.geometry;
+    if (!geom || !props.highway) continue;
+
+    osmRoadsCount++;
+    const highwayType = props.highway;
+    const config = ROAD_BUFFER_CONFIG[highwayType] || { width: 5.0, radiusKm: 0.0025, isAlley: false };
+
+    if (geom.type === 'LineString' || geom.type === 'MultiLineString') {
+      try {
+        // Buffer road for collision tree only (buildings & trees use this to avoid collisions)
+        const buffered = turf.buffer(feature, config.radiusKm, { units: 'kilometers' });
+        if (buffered) {
+          const [minX, minY, maxX, maxY] = turf.bbox(buffered);
+          roadTree.insert({ minX, minY, maxX, maxY, feature: buffered });
+        }
+      } catch (e) {}
+
+      // Build Continuous Road Ribbons & Graph from LineString
+      if (geom.type === 'LineString') {
+        const coords = geom.coordinates as [number, number][];
+        const path = coords.map(([lon, lat]) => projection.project(lon, lat));
+        const N = path.length;
+
+        // --- COMPREHENSIVE BRIDGE RECOGNITION MECHANISM ---
+        const nameLower = (props.name || '').toLowerCase();
+        const isTaggedBridge =
+          props.bridge === 'yes' ||
+          props.bridge === 'viaduct' ||
+          props.bridge === 'cantilever' ||
+          props.bridge === 'suspension' ||
+          props.bridge === 'movable' ||
+          props.bridge === 'beam' ||
+          props.man_made === 'bridge';
+        const parsedLayer = props.layer ? parseFloat(String(props.layer)) : 0;
+        const isPositiveLayer = parsedLayer > 0;
+        const isNamedBridge =
+          nameLower.startsWith('cầu ') ||
+          nameLower.includes('cầu vượt') ||
+          nameLower.includes('viaduct') ||
+          nameLower.includes('overpass');
+
+        // Spatial Waterway Cross-Check (Automatic GIS Detection)
+        let isWaterCrossing = false;
+        try {
+          const [minX, minY, maxX, maxY] = turf.bbox(feature);
+          const waterCands = waterTree.search({ minX, minY, maxX, maxY });
+          for (const cand of waterCands) {
+            if (turf.booleanIntersects(feature as any, cand.feature)) {
+              isWaterCrossing = true;
+              break;
+            }
+          }
+        } catch (e) {}
+
+        const isBridge = isTaggedBridge || isPositiveLayer || isNamedBridge || isWaterCrossing;
+
+        let bridgeType: 'river_bridge' | 'flyover' | 'viaduct' = 'river_bridge';
+        if (isNamedBridge && nameLower.includes('vượt')) {
+          bridgeType = 'flyover';
+        } else if (!isWaterCrossing && isPositiveLayer) {
+          bridgeType = 'flyover';
+        } else if (props.bridge === 'viaduct') {
+          bridgeType = 'viaduct';
+        }
+
+        // Base elevation for ground road
+        const baseY = config.isAlley
+          ? 0.078
+          : highwayType === 'primary'
+          ? 0.084
+          : highwayType === 'secondary'
+          ? 0.082
+          : 0.080;
+
+        // Vertical Elevation Profile along road vertices
+        const elevationProfile: number[] = [];
+        if (!isBridge) {
+          for (let i = 0; i < N; i++) elevationProfile.push(baseY);
+        } else {
+          // Elevated bridge deck (3.8m for river bridges, 5.2m for flyovers)
+          const peakH = bridgeType === 'flyover' ? 5.2 : 3.8;
+          if (N <= 2) {
+            elevationProfile.push(peakH, peakH);
+          } else {
+            // Smooth arch profile: ramps up from ground, peaks at center, ramps back to ground
+            for (let i = 0; i < N; i++) {
+              const t = i / (N - 1);
+              const arch = Math.sin(t * Math.PI);
+              const h = baseY + (peakH - baseY) * Math.pow(arch, 0.7);
+              elevationProfile.push(h);
+            }
+          }
+        }
+
+        roadPolygonItems.push({
+          id: `road_line_${props.id || Math.random()}`,
+          name: props.name || (isBridge ? 'Cầu Đô Thị' : config.isAlley ? 'Hẻm Sài Gòn' : 'Đường đô thị'),
+          highway: highwayType,
+          isAlley: config.isAlley,
+          width: isBridge ? Math.max(config.width, 7.0) : config.width,
+          rings: [],
+          path,
+          isBridge,
+          bridgeType,
+          layer: parsedLayer,
+          elevationProfile,
+        });
+
+        let prevNodeId: string | null = null;
+
+        for (let i = 0; i < coords.length; i++) {
+          const [lon, lat] = coords[i];
+          const pt = projection.project(lon, lat);
+          const elevY = elevationProfile[i] || baseY;
+
+          // Grid quantize key (snap to nearest 1 meter)
+          const snapKey = `${Math.round(pt.x)}_${Math.round(pt.z)}`;
+          let node = graphNodes.get(snapKey);
+
+          if (!node) {
+            node = {
+              id: snapKey,
+              lat,
+              lon,
+              x: pt.x,
+              y: elevY,
+              z: pt.z,
+              neighborIds: [],
+            };
+            graphNodes.set(snapKey, node);
+          } else if (elevY > (node.y || 0)) {
+            node.y = elevY;
+          }
+
+          if (prevNodeId && prevNodeId !== node.id) {
+            const prevNode: RoadGraphNode | undefined = graphNodes.get(prevNodeId);
+            if (prevNode) {
+              if (!prevNode.neighborIds.includes(node.id)) {
+                prevNode.neighborIds.push(node.id);
+              }
+              if (!node.neighborIds.includes(prevNodeId)) {
+                node.neighborIds.push(prevNodeId);
+              }
+
+              const dist = GeoProjection.distance(prevNode, node);
+              graphEdges.push({
+                fromId: prevNodeId,
+                toId: node.id,
+                lengthMeters: dist,
+                highway: highwayType,
+                name: props.name || (isBridge ? 'Cầu' : config.isAlley ? 'Hẻm Sài Gòn' : 'Đường'),
+                isAlley: config.isAlley,
+                isBridge,
+                elevation: ((prevNode.y || baseY) + elevY) / 2,
+              });
+            }
+          }
+
+          prevNodeId = node.id;
+        }
       }
     }
   }

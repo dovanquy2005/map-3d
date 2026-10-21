@@ -20,8 +20,8 @@ export const DEFAULT_COORDS = {
   lon: parseFloat(import.meta.env.VITE_DEFAULT_LON || '106.7019'),
 };
 
-// Default area size: ~400m x 400m (half-extent ~ 200m)
-export const DEFAULT_RADIUS_METERS = 220;
+// Expanded area size: ~1,000m x 1,000m (5x area of original 440m x 440m)
+export const DEFAULT_RADIUS_METERS = 500;
 
 export const SAIGON_PRESETS: PresetLocation[] = [
   {

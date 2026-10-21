@@ -11,11 +11,12 @@ import { GeoProjection } from './world/projection';
 import { SceneManager } from './world/SceneManager';
 import { ShipperController } from './world/ShipperController';
 import { CityVegetation } from './world/CityVegetation';
-import { CityTraffic, VehiclePlacement } from './world/CityTraffic';
+import { CityTraffic } from './world/CityTraffic';
 
 class SaigonShipperApp {
   private sceneManager!: SceneManager;
   private shipperController!: ShipperController;
+  private cityTraffic!: CityTraffic;
 
   // Geographic state
   private currentLat = DEFAULT_COORDS.lat;
@@ -91,9 +92,13 @@ class SaigonShipperApp {
     this.shipperController = new ShipperController(this.sceneManager.camera);
     this.sceneManager.scene.add(this.shipperController.bikeGroup);
 
+    this.cityTraffic = new CityTraffic();
+    this.sceneManager.scene.add(this.cityTraffic.group);
+
     // Register physics/kinematics update loop
     this.sceneManager.registerUpdateHook((dt) => {
       this.shipperController.update(dt);
+      this.cityTraffic.update(dt);
     });
 
     // Wire shipper telemetry to in-game HUD
@@ -121,7 +126,7 @@ class SaigonShipperApp {
     // CartoDB Dark Matter tile layer
     this.leafletMap = L.map('leaflet-minimap', {
       center: [this.currentLat, this.currentLon],
-      zoom: 16,
+      zoom: 15, // Expanded 5x view
       zoomControl: false,
       attributionControl: false,
     });
@@ -319,8 +324,8 @@ class SaigonShipperApp {
         this.sceneManager.scene.add(cityResult.mesh);
       }
 
-      // 5B. 3D Merged Roads & Saigon Alleys
-      const roadMesh = EnvironmentBuilder.buildRoads(fusionResult.roads);
+      // 5B. 3D Merged Roads & Saigon Alleys with Seamless Crossroads
+      const roadMesh = EnvironmentBuilder.buildRoads(fusionResult.roads, fusionResult.roadGraph);
       if (roadMesh) {
         this.sceneManager.scene.add(roadMesh);
       }
@@ -335,17 +340,30 @@ class SaigonShipperApp {
       const { parkMesh } = EnvironmentBuilder.buildParks(fusionResult.parks);
       if (parkMesh) this.sceneManager.scene.add(parkMesh);
 
-      // 5E. 1,500+ Lush Tropical Trees (InstancedMesh - 1 Draw Call)
+      // 5E. Curated Boulevard Trees (Drastically reduced, strictly outside roads & water)
       const treePositions: Array<{ x: number; z: number; scale?: number }> = [];
 
-      // Trees along sidewalks, canal promenades, and courtyards (Filtered against buildings!)
+      // Check distance squared from (tx, tz) to a 2D line segment (x1, z1)-(x2, z2)
+      const distToSegmentSq = (px: number, pz: number, x1: number, z1: number, x2: number, z2: number): number => {
+        const dx = x2 - x1;
+        const dz = z2 - z1;
+        const lenSq = dx * dx + dz * dz;
+        if (lenSq < 0.001) return (px - x1) * (px - x1) + (pz - z1) * (pz - z1);
+        const t = Math.max(0, Math.min(1, ((px - x1) * dx + (pz - z1) * dz) / lenSq));
+        const projX = x1 + t * dx;
+        const projZ = z1 + t * dz;
+        return (px - projX) * (px - projX) + (pz - projZ) * (pz - projZ);
+      };
+
+      // Trees filtered against buildings
       const isInsideAnyBuilding = (tx: number, tz: number) => {
-        for (const b of fusionResult.buildings) {
+        for (let i = 0; i < fusionResult.buildings.length; i++) {
+          const b = fusionResult.buildings[i];
           if (
-            tx >= b.bbox.minX - 0.8 &&
-            tx <= b.bbox.maxX + 0.8 &&
-            tz >= b.bbox.minZ - 0.8 &&
-            tz <= b.bbox.maxZ + 0.8
+            tx >= b.bbox.minX - 0.9 &&
+            tx <= b.bbox.maxX + 0.9 &&
+            tz >= b.bbox.minZ - 0.9 &&
+            tz <= b.bbox.maxZ + 0.9
           ) {
             return true;
           }
@@ -353,50 +371,154 @@ class SaigonShipperApp {
         return false;
       };
 
+      // Trees filtered strictly against lakes, ponds, canals
+      const isInsideOrNearWater = (tx: number, tz: number, minDist: number = 4.5) => {
+        const minDistSq = minDist * minDist;
+        for (let i = 0; i < fusionResult.water.length; i++) {
+          const w = fusionResult.water[i];
+          for (let r = 0; r < w.rings.length; r++) {
+            const ring = w.rings[r];
+            if (ring.length < 3) continue;
+
+            // Bounding box pre-check
+            let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+            for (let k = 0; k < ring.length; k++) {
+              if (ring[k].x < minX) minX = ring[k].x;
+              if (ring[k].x > maxX) maxX = ring[k].x;
+              if (ring[k].z < minZ) minZ = ring[k].z;
+              if (ring[k].z > maxZ) maxZ = ring[k].z;
+            }
+            if (tx < minX - minDist || tx > maxX + minDist || tz < minZ - minDist || tz > maxZ + minDist) {
+              continue;
+            }
+
+            // Ray casting point-in-polygon
+            let inside = false;
+            for (let j = 0, k = ring.length - 1; j < ring.length; k = j++) {
+              const xi = ring[j].x, zi = ring[j].z;
+              const xj = ring[k].x, zj = ring[k].z;
+              const intersect = ((zi > tz) !== (zj > tz)) && (tx < ((xj - xi) * (tz - zi)) / (zj - zi) + xi);
+              if (intersect) inside = !inside;
+            }
+            if (inside) return true;
+
+            // Distance to perimeter boundary
+            for (let j = 0; j < ring.length; j++) {
+              const p1 = ring[j];
+              const p2 = ring[(j + 1) % ring.length];
+              if (distToSegmentSq(tx, tz, p1.x, p1.z, p2.x, p2.z) < minDistSq) return true;
+            }
+          }
+        }
+        return false;
+      };
+
+      // Trees filtered against road driving lanes
+      const isTooCloseToRoadCenter = (tx: number, tz: number, minDist: number = 6.0) => {
+        const minDistSq = minDist * minDist;
+        for (let i = 0; i < fusionResult.roadGraph.edges.length; i++) {
+          const edge = fusionResult.roadGraph.edges[i];
+          const n1 = fusionResult.roadGraph.nodes.get(edge.fromId);
+          const n2 = fusionResult.roadGraph.nodes.get(edge.toId);
+          if (n1 && n2) {
+            if (distToSegmentSq(tx, tz, n1.x, n1.z, n2.x, n2.z) < minDistSq) return true;
+          }
+        }
+        return false;
+      };
+
+      // 1. Boulevard trees along major avenues
       for (const edge of fusionResult.roadGraph.edges) {
-        if (edge.isAlley) continue; // Alleys are narrow shared spaces, keep clear for motorcycles!
+        // Major avenues only, never on alleys or bridges
+        const isMajorAvenue = edge.highway === 'primary' || edge.highway === 'secondary' || edge.highway === 'trunk';
+        if (!isMajorAvenue || edge.isAlley || edge.isBridge) continue;
+
         const n1 = fusionResult.roadGraph.nodes.get(edge.fromId);
         const n2 = fusionResult.roadGraph.nodes.get(edge.toId);
         if (n1 && n2) {
           const dist = Math.hypot(n2.x - n1.x, n2.z - n1.z);
-          const steps = Math.floor(dist / 14);
+          if (dist < 60) continue; // Keep intersections completely clear!
+
+          // Road half width + verge margin (placed safely outside the curb!)
+          const roadWidth = edge.highway === 'primary' || edge.highway === 'trunk' ? 14.0 : 10.0;
+          const treeOffset = roadWidth / 2 + 2.4;
+
+          const steps = Math.floor(dist / 65); // Generous 65m spacing (tasteful, uncrowded)
           for (let s = 1; s <= steps; s++) {
             const t = s / (steps + 1);
             const midX = n1.x + (n2.x - n1.x) * t;
             const midZ = n1.z + (n2.z - n1.z) * t;
+
+            // Check distance to both endpoint junctions
+            const distToN1 = Math.hypot(midX - n1.x, midZ - n1.z);
+            const distToN2 = Math.hypot(midX - n2.x, midZ - n2.z);
+            if (distToN1 < 22 || distToN2 < 22) continue; // Keep intersection clear!
+
             const perpX = -(n2.z - n1.z) / (dist || 1);
             const perpZ = (n2.x - n1.x) / (dist || 1);
 
-            // Sidewalk tree line (5.8m from road centerline)
-            const offset = 5.8;
-            const t1 = { x: midX + perpX * offset, z: midZ + perpZ * offset };
-            const t2 = { x: midX - perpX * offset, z: midZ - perpZ * offset };
+            // Stagger 1 tree per interval alternating left and right
+            const side = s % 2 === 0 ? 1 : -1;
+            const treePt = { x: midX + perpX * (treeOffset * side), z: midZ + perpZ * (treeOffset * side) };
 
-            if (!isInsideAnyBuilding(t1.x, t1.z)) {
-              treePositions.push({ x: t1.x, z: t1.z, scale: 0.85 + Math.random() * 0.35 });
-            }
-            if (!isInsideAnyBuilding(t2.x, t2.z)) {
-              treePositions.push({ x: t2.x, z: t2.z, scale: 0.85 + Math.random() * 0.35 });
+            if (
+              !isInsideAnyBuilding(treePt.x, treePt.z) &&
+              !isInsideOrNearWater(treePt.x, treePt.z, 3.5) &&
+              !isTooCloseToRoadCenter(treePt.x, treePt.z, roadWidth / 2 + 0.5)
+            ) {
+              treePositions.push({ x: treePt.x, z: treePt.z, scale: 0.9 + Math.random() * 0.35 });
             }
           }
         }
       }
 
-      // Trees in parks and plazas
+      // 2. Trees in parks and plazas (Drastically reduced to 3-6 per park, strictly inside boundary)
       for (const park of fusionResult.parks) {
         const outer = park.rings[0];
         if (outer && outer.length >= 3) {
           let cx = 0, cz = 0;
-          for (const pt of outer) { cx += pt.x; cz += pt.z; }
+          let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+          for (const pt of outer) {
+            cx += pt.x; cz += pt.z;
+            if (pt.x < minX) minX = pt.x;
+            if (pt.x > maxX) maxX = pt.x;
+            if (pt.z < minZ) minZ = pt.z;
+            if (pt.z > maxZ) maxZ = pt.z;
+          }
           cx /= outer.length; cz /= outer.length;
-          for (let k = 0; k < 28; k++) {
-            const rad = Math.random() * 45;
+
+          const parkRadius = Math.min(25, Math.min(maxX - minX, maxZ - minZ) * 0.32);
+          const maxParkTrees = Math.min(6, Math.max(3, Math.floor(outer.length / 4)));
+          let planted = 0;
+
+          for (let k = 0; k < 18 && planted < maxParkTrees; k++) {
+            const rad = Math.random() * parkRadius;
             const ang = Math.random() * Math.PI * 2;
-            treePositions.push({
-              x: cx + Math.cos(ang) * rad,
-              z: cz + Math.sin(ang) * rad,
-              scale: 0.9 + Math.random() * 0.6,
-            });
+            const candX = cx + Math.cos(ang) * rad;
+            const candZ = cz + Math.sin(ang) * rad;
+
+            // Point in polygon test for park
+            let insidePark = false;
+            for (let j = 0, l = outer.length - 1; j < outer.length; l = j++) {
+              const xi = outer[j].x, zi = outer[j].z;
+              const xj = outer[l].x, zj = outer[l].z;
+              const intersect = ((zi > candZ) !== (zj > candZ)) && (candX < ((xj - xi) * (candZ - zi)) / (zj - zi) + xi);
+              if (intersect) insidePark = !insidePark;
+            }
+
+            if (
+              insidePark &&
+              !isInsideAnyBuilding(candX, candZ) &&
+              !isInsideOrNearWater(candX, candZ, 4.0) &&
+              !isTooCloseToRoadCenter(candX, candZ, 6.0)
+            ) {
+              treePositions.push({
+                x: candX,
+                z: candZ,
+                scale: 0.9 + Math.random() * 0.5,
+              });
+              planted++;
+            }
           }
         }
       }
@@ -404,42 +526,16 @@ class SaigonShipperApp {
       const vegetationGroup = CityVegetation.createVegetation(treePositions);
       this.sceneManager.scene.add(vegetationGroup);
 
-      // 5F. 500+ Vehicles on Streets and Alleys (InstancedMesh - 1 Draw Call)
-      const vehiclePlacements: VehiclePlacement[] = [];
-      for (const edge of fusionResult.roadGraph.edges) {
-        const n1 = fusionResult.roadGraph.nodes.get(edge.fromId);
-        const n2 = fusionResult.roadGraph.nodes.get(edge.toId);
-        if (n1 && n2) {
-          const dist = Math.hypot(n2.x - n1.x, n2.z - n1.z);
-          if (dist > 18) {
-            const heading = Math.atan2(n2.x - n1.x, n2.z - n1.z);
-            const count = Math.floor(dist / 22);
-            for (let v = 1; v <= count; v++) {
-              const t = v / (count + 1);
-              const vx = n1.x + (n2.x - n1.x) * t;
-              const vz = n1.z + (n2.z - n1.z) * t;
-              const perpX = -(n2.z - n1.z) / (dist || 1);
-              const perpZ = (n2.x - n1.x) / (dist || 1);
-              const laneOffset = edge.isAlley ? 0 : 2.5 * (v % 2 === 0 ? 1 : -1);
-              vehiclePlacements.push({
-                x: vx + perpX * laneOffset,
-                z: vz + perpZ * laneOffset,
-                heading: v % 2 === 0 ? heading : heading + Math.PI,
-              });
-            }
-          }
-        }
-      }
-
-      const trafficGroup = CityTraffic.createTraffic(vehiclePlacements);
-      this.sceneManager.scene.add(trafficGroup);
+      // 5F. Autonomous Moving Traffic Simulation (Cars & Motorbikes Obeying Traffic Lanes)
+      this.cityTraffic.initSimulation(fusionResult.roadGraph);
+      this.sceneManager.scene.add(this.cityTraffic.group);
 
       // Step 6: Initialize Shipper scooter environment
       this.shipperController.setEnvironment(fusionResult.buildings, fusionResult.roadGraph);
 
       const totalTime = (performance.now() - startTime) / 1000;
       this.appendTelemetryLog(
-        `[Đô thị Sài Gòn 3D] ~0.95 km² • ${fusionResult.buildings.length} nhà • ${treePositions.length} cây xanh • ${vehiclePlacements.length} xe cộ • Dựng xong trong ${totalTime.toFixed(1)}s (Nghiêng 53°)`,
+        `[Đô thị Sài Gòn 3D] ~1.0 km² • ${fusionResult.buildings.length} tòa nhà chi tiết • ${treePositions.length} cây xanh • ${fusionResult.roads.length} tuyến đường • Dựng xong trong ${totalTime.toFixed(1)}s (Nghiêng 53°)`,
         'success'
       );
 

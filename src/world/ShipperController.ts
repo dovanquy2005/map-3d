@@ -182,15 +182,26 @@ export class ShipperController {
     if (roadGraph.nodes.size > 0) {
       const firstNode = roadGraph.nodes.values().next().value;
       if (firstNode) {
-        this.resetPosition(firstNode.x, firstNode.z);
+        this.resetPosition(firstNode.x, firstNode.z, firstNode.y ?? 0.08);
         return;
       }
     }
-    this.resetPosition(0, 0);
+    this.resetPosition(0, 0, 0.08);
   }
 
-  public resetPosition(x = 0, z = 0): void {
-    this.position.set(x, 0, z);
+  public resetPosition(x = 0, z = 0, y?: number): void {
+    let initY = y ?? 0.08;
+    if (this.roadGraph && y === undefined) {
+      let minDist = Infinity;
+      for (const node of this.roadGraph.nodes.values()) {
+        const d = Math.hypot(x - node.x, z - node.z);
+        if (d < minDist) {
+          minDist = d;
+          if (d < 20) initY = node.y ?? 0.08;
+        }
+      }
+    }
+    this.position.set(x, initY, z);
     this.velocity = 0;
     this.heading = 0;
     this.steerAngle = 0;
@@ -325,6 +336,11 @@ export class ShipperController {
     let hadCollision = false;
 
     for (const bld of this.buildings) {
+      // If bike is elevated above building height (e.g. flyover / high bridge), skip collision
+      if (nextPos.y > bld.height) {
+        continue;
+      }
+
       // 1. Broadphase BBox check
       const bb = bld.bbox;
       if (
@@ -407,7 +423,7 @@ export class ShipperController {
       this.leanAngle = THREE.MathUtils.lerp(this.leanAngle, 0, 10 * deltaTime);
     }
 
-    // 3. Position update with collision resolution
+    // 3. Position update with collision resolution & Bridge Deck Elevation
     // Heading 0 faces +Z in local coordinates
     const forwardX = Math.sin(this.heading);
     const forwardZ = Math.cos(this.heading);
@@ -415,6 +431,76 @@ export class ShipperController {
     const nextPos = this.position.clone();
     nextPos.x += forwardX * this.velocity * deltaTime;
     nextPos.z += forwardZ * this.velocity * deltaTime;
+
+    // Sample Road / Bridge Elevation from Road Graph
+    let targetY = 0.08;
+    let minEdgeDist = Infinity;
+    let nearestEdge: any = null;
+    let isOnBridgeDeck = false;
+
+    if (this.roadGraph && this.roadGraph.edges.length > 0) {
+      for (const edge of this.roadGraph.edges) {
+        const n1 = this.roadGraph.nodes.get(edge.fromId);
+        const n2 = this.roadGraph.nodes.get(edge.toId);
+        if (!n1 || !n2) continue;
+
+        const dx = n2.x - n1.x;
+        const dz = n2.z - n1.z;
+        const lenSq = dx * dx + dz * dz;
+        if (lenSq < 0.01) continue;
+
+        const t = Math.max(0, Math.min(1, ((nextPos.x - n1.x) * dx + (nextPos.z - n1.z) * dz) / lenSq));
+        const cx = n1.x + t * dx;
+        const cz = n1.z + t * dz;
+        const d = Math.hypot(nextPos.x - cx, nextPos.z - cz);
+
+        if (d < minEdgeDist) {
+          minEdgeDist = d;
+          nearestEdge = edge;
+        }
+
+        const isElevatedBridge = !!edge.isBridge || (n1.y ?? 0) > 0.5 || (n2.y ?? 0) > 0.5;
+        if (isElevatedBridge && d < 7.5) {
+          const y1 = n1.y ?? 0.08;
+          const y2 = n2.y ?? 0.08;
+          const edgeY = y1 + (y2 - y1) * t;
+          if (edgeY > targetY) {
+            targetY = edgeY;
+            isOnBridgeDeck = true;
+          }
+
+          // Bridge Safety Parapet barrier: keeps motorcycle safely on bridge deck
+          if (d > 5.5) {
+            const pushBack = d - 5.5;
+            const nx = (cx - nextPos.x) / (d || 1);
+            const nz = (cz - nextPos.z) / (d || 1);
+            nextPos.x += nx * pushBack;
+            nextPos.z += nz * pushBack;
+            this.velocity *= 0.65; // bump friction against parapet
+          }
+        }
+      }
+
+      // If not on an elevated bridge, check if on ground road
+      if (!isOnBridgeDeck && nearestEdge && minEdgeDist < 12.0) {
+        const n1 = this.roadGraph.nodes.get(nearestEdge.fromId);
+        const n2 = this.roadGraph.nodes.get(nearestEdge.toId);
+        if (n1 && n2) {
+          const dx = n2.x - n1.x;
+          const dz = n2.z - n1.z;
+          const lenSq = dx * dx + dz * dz;
+          if (lenSq >= 0.01) {
+            const t = Math.max(0, Math.min(1, ((nextPos.x - n1.x) * dx + (nextPos.z - n1.z) * dz) / lenSq));
+            const y1 = n1.y ?? 0.08;
+            const y2 = n2.y ?? 0.08;
+            targetY = y1 + (y2 - y1) * t;
+          }
+        }
+      }
+    }
+
+    // Smoothly adapt bike height to road / bridge slope
+    nextPos.y = THREE.MathUtils.lerp(this.position.y, targetY, Math.min(1, 14 * deltaTime));
 
     const hadCollision = this.resolveCollisions(nextPos);
     this.position.copy(nextPos);
@@ -432,26 +518,16 @@ export class ShipperController {
     // 4. Update 3rd-Person Follow Camera
     this.updateCamera(deltaTime, false);
 
-    // 5. Detect Nearest Street / Alley name from Road Graph
-    if (this.roadGraph && this.roadGraph.edges.length > 0) {
-      let minDist = Infinity;
-      let nearestName = this.currentRoadName;
-
-      for (const edge of this.roadGraph.edges) {
-        const n1 = this.roadGraph.nodes.get(edge.fromId);
-        const n2 = this.roadGraph.nodes.get(edge.toId);
-        if (n1 && n2) {
-          const midX = (n1.x + n2.x) / 2;
-          const midZ = (n1.z + n2.z) / 2;
-          const d = Math.hypot(this.position.x - midX, this.position.z - midZ);
-          if (d < minDist && edge.name) {
-            minDist = d;
-            nearestName = edge.isAlley ? `Hẻm: ${edge.name}` : edge.name;
-          }
-        }
-      }
-      if (minDist < 40) {
-        this.currentRoadName = nearestName;
+    // 5. Detect Nearest Street / Alley / Bridge name from Road Graph
+    if (minEdgeDist < 40 && nearestEdge && nearestEdge.name) {
+      if (nearestEdge.isBridge) {
+        this.currentRoadName = nearestEdge.name.toLowerCase().startsWith('cầu')
+          ? nearestEdge.name
+          : `Cầu ${nearestEdge.name}`;
+      } else if (nearestEdge.isAlley) {
+        this.currentRoadName = `Hẻm: ${nearestEdge.name}`;
+      } else {
+        this.currentRoadName = nearestEdge.name;
       }
     }
 

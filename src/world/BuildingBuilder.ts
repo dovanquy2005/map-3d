@@ -330,6 +330,8 @@ export class BuildingBuilder {
         );
         uvs.push(u0, v0_uv, u1, v1_uv, u0, v1_uv);
 
+
+
         // Rooftop Parapet border (0.45m wall around flat roofs)
         if (!hasSlopedRoof) {
           const vTop0 = [pCurrent.x, height, pCurrent.z];

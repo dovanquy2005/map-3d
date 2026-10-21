@@ -50,6 +50,10 @@ export interface RoadPolygonItem {
   width: number;
   rings: MetricPoint[][];
   path?: MetricPoint[];
+  isBridge?: boolean;
+  bridgeType?: 'river_bridge' | 'flyover' | 'viaduct';
+  layer?: number;
+  elevationProfile?: number[]; // Elevation (meters) at each vertex of path
 }
 
 export interface WaterPolygonItem {
@@ -69,6 +73,7 @@ export interface RoadGraphNode {
   lat: number;
   lon: number;
   x: number;
+  y?: number; // Vertical height in meters (elevated on bridges)
   z: number;
   neighborIds: string[];
 }
@@ -80,6 +85,8 @@ export interface RoadGraphEdge {
   highway: string;
   name: string;
   isAlley: boolean;
+  isBridge?: boolean;
+  elevation?: number;
 }
 
 export interface RoadNetworkGraph {

@@ -16,43 +16,33 @@ export class TextureGenerator {
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
 
-    // Clean dark slate asphalt matching reference image
-    ctx.fillStyle = '#2b3342';
+    // Clean dark matte asphalt matching reference image
+    ctx.fillStyle = '#23272f';
     ctx.fillRect(0, 0, 512, 512);
 
     // Subtle fine asphalt micro-grain
-    for (let i = 0; i < 4000; i++) {
+    for (let i = 0; i < 3000; i++) {
       const x = Math.random() * 512;
       const y = Math.random() * 512;
-      const gray = Math.floor(38 + Math.random() * 22);
+      const gray = Math.floor(30 + Math.random() * 15);
       ctx.fillStyle = `rgb(${gray},${gray},${gray})`;
       ctx.fillRect(x, y, 2, 2);
     }
 
     // Crisp white shoulder lines (both edges)
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 14;
+    ctx.lineWidth = 10;
     ctx.beginPath();
-    ctx.moveTo(32, 0);
-    ctx.lineTo(32, 512);
-    ctx.moveTo(480, 0);
-    ctx.lineTo(480, 512);
-    ctx.stroke();
-
-    // Solid inner curb edge guide
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(42, 0);
-    ctx.lineTo(42, 512);
-    ctx.moveTo(470, 0);
-    ctx.lineTo(470, 512);
+    ctx.moveTo(28, 0);
+    ctx.lineTo(28, 512);
+    ctx.moveTo(484, 0);
+    ctx.lineTo(484, 512);
     ctx.stroke();
 
     // Golden yellow dashed centerline
     ctx.strokeStyle = '#facc15';
-    ctx.lineWidth = 12;
-    ctx.setLineDash([54, 38]);
+    ctx.lineWidth = 8;
+    ctx.setLineDash([48, 32]);
     ctx.beginPath();
     ctx.moveTo(256, 0);
     ctx.lineTo(256, 512);
@@ -61,7 +51,7 @@ export class TextureGenerator {
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(1, 4);
+    texture.repeat.set(1, 1);
     this.roadTexture = texture;
     return texture;
   }

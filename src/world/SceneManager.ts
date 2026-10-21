@@ -28,13 +28,13 @@ export class SceneManager {
     // 1. Scene setup
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0xdbeafe); // Soft Saigon daylight sky
-    this.scene.fog = new THREE.FogExp2(0xdbeafe, 0.001);
+    this.scene.fog = new THREE.FogExp2(0xdbeafe, 0.00045);
 
     // 2. Camera setup - Isometric SimCity Perspective (FOV 40, tilted ~53° as shown in reference)
     const width = container.clientWidth || window.innerWidth;
     const height = container.clientHeight || window.innerHeight;
-    this.camera = new THREE.PerspectiveCamera(40, width / height, 1, 4000);
-    this.camera.position.set(240, 275, 240); // 53° pitch diagonal angle
+    this.camera = new THREE.PerspectiveCamera(40, width / height, 1, 6000);
+    this.camera.position.set(450, 480, 450); // High-angle diagonal view covering 1km city
 
     // 3. Renderer setup
     this.renderer = new THREE.WebGLRenderer({
@@ -55,22 +55,22 @@ export class SceneManager {
     this.orbitControls.dampingFactor = 0.05;
     this.orbitControls.maxPolarAngle = Math.PI / 2 - 0.08;
     this.orbitControls.minDistance = 20;
-    this.orbitControls.maxDistance = 1500;
+    this.orbitControls.maxDistance = 3000;
     this.orbitControls.target.set(0, 0, 0);
 
-    // 5. Lighting - Warm Tropical Sun + Cool Skylight (Crisp diagonal shadows)
-    this.hemiLight = new THREE.HemisphereLight(0xfffbeb, 0x93c5fd, 1.1);
-    this.hemiLight.position.set(0, 300, 0);
+    // 5. Lighting - Warm Tropical Sun + Soft Neutral Skylight (Crisp diagonal shadows)
+    this.hemiLight = new THREE.HemisphereLight(0xfffbeb, 0xcfd4dc, 1.15);
+    this.hemiLight.position.set(0, 600, 0);
     this.scene.add(this.hemiLight);
 
     this.sunLight = new THREE.DirectionalLight(0xfff8db, 2.2);
-    this.sunLight.position.set(280, 400, 180);
+    this.sunLight.position.set(450, 650, 300);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.width = 4096;
     this.sunLight.shadow.mapSize.height = 4096;
     this.sunLight.shadow.camera.near = 10;
-    this.sunLight.shadow.camera.far = 1200;
-    const shadowDist = 450;
+    this.sunLight.shadow.camera.far = 1800;
+    const shadowDist = 800;
     this.sunLight.shadow.camera.left = -shadowDist;
     this.sunLight.shadow.camera.right = shadowDist;
     this.sunLight.shadow.camera.top = shadowDist;

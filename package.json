@@ -16,6 +16,7 @@
     "@types/pbf": "^3.0.5",
     "@types/rbush": "^4.0.0",
     "@types/three": "^0.186.0",
+    "@xmldom/xmldom": "^0.9.12",
     "typescript": "~6.0.3",
     "vite": "^8.3.4"
   },

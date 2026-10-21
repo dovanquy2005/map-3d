@@ -124,8 +124,7 @@ class SaigonShipperApp {
       attributionControl: false,
     });
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      subdomains: 'abcd',
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
     }).addTo(this.leafletMap);
 
@@ -290,11 +289,11 @@ class SaigonShipperApp {
         if (log) this.appendTelemetryLog(log, type);
       });
 
-      // Await Overpass and VIDA
+      // Await Overpass and VIDA (with resilience guarantees)
       const [, overpassResult, vidaBuildings] = await Promise.all([
-        nominatimPromise,
+        nominatimPromise.catch(() => null),
         overpassPromise,
-        vidaPromise,
+        vidaPromise.catch(() => []),
       ]);
 
       // Step 4: Spatial Fusion & Deduplication via RBush R-Trees

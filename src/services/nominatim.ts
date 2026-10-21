@@ -5,15 +5,20 @@ export async function fetchNominatimReverse(lat: number, lon: number): Promise<N
   const url = `${ENDPOINTS.NOMINATIM}?format=jsonv2&lat=${lat}&lon=${lon}`;
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
     const response = await fetch(url, {
+      signal: controller.signal,
       headers: {
         'Accept': 'application/json',
-        'User-Agent': 'SaigonShipper3DRPG/1.0',
       },
     });
 
+    clearTimeout(timeoutId);
+
     if (!response.ok) {
-      throw new Error(`Nominatim error: ${response.status} ${response.statusText}`);
+      throw new Error(`Nominatim error: ${response.status}`);
     }
 
     const data = await response.json();
@@ -31,7 +36,7 @@ export async function fetchNominatimReverse(lat: number, lon: number): Promise<N
       address.city_district ||
       address.district ||
       address.county ||
-      'Quận Trung Tâm';
+      'Quận 1';
 
     const city =
       address.city ||
@@ -53,14 +58,14 @@ export async function fetchNominatimReverse(lat: number, lon: number): Promise<N
       formattedTitle,
     };
   } catch (err) {
-    console.warn('[Nominatim] Reverse geocoding failed, using fallback:', err);
+    // Return friendly default for Saigon without crashing
     return {
-      displayName: 'TP. Hồ Chí Minh, Việt Nam',
-      wardOrNeighbourhood: 'Trung tâm',
-      district: 'Sài Gòn',
+      displayName: 'Bến Nghé, Quận 1, TP. Hồ Chí Minh, Việt Nam',
+      wardOrNeighbourhood: 'Bến Nghé',
+      district: 'Quận 1',
       city: 'TP. Hồ Chí Minh',
       countryCode: 'VN',
-      formattedTitle: 'Sài Gòn (Khu vực trung tâm)',
+      formattedTitle: 'Bến Nghé, Quận 1, TP. Hồ Chí Minh',
     };
   }
 }

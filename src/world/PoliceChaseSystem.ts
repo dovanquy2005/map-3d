@@ -2,12 +2,18 @@ import * as THREE from 'three';
 import { RoadGraphEdge, RoadNetworkGraph } from '../types/gis';
 import { AudioManager } from '../services/AudioManager';
 
+export type EmergencyEventType = 'none' | 'police_chase' | 'ambulance_rush';
+
 export interface PoliceChaseStatus {
   isActive: boolean;
+  eventType: EmergencyEventType;
   distanceToPlayer: number;
-  robberPos: { x: number; y: number; z: number };
-  policePos: { x: number; y: number; z: number };
-  chaseDuration: number;
+  robberPos?: { x: number; y: number; z: number };
+  policePos?: { x: number; y: number; z: number };
+  ambulancePos?: { x: number; y: number; z: number };
+  duration: number;
+  icon: string;
+  badge: string;
   message: string;
 }
 
@@ -18,6 +24,7 @@ export class PoliceChaseSystem {
   // 3D Vehicle Groups
   private robberBikeGroup: THREE.Group;
   private policeBikeGroup: THREE.Group;
+  private ambulanceGroup: THREE.Group;
 
   // Police Emergency Siren Lights
   private redBeaconMat: THREE.MeshBasicMaterial;
@@ -25,11 +32,21 @@ export class PoliceChaseSystem {
   private redStrobeLight: THREE.PointLight;
   private blueStrobeLight: THREE.PointLight;
 
-  // Kinematic States
-  private isActive: boolean = false;
-  private isCaught: boolean = false;
-  private chaseTimer: number = 0;
+  // Ambulance Emergency Siren Lights
+  private ambBeaconMat1: THREE.MeshBasicMaterial;
+  private ambBeaconMat2: THREE.MeshBasicMaterial;
+  private ambStrobeLight1: THREE.PointLight;
+  private ambStrobeLight2: THREE.PointLight;
+
+  // Event State Machine
+  private currentEvent: EmergencyEventType = 'none';
+  private isCompleted: boolean = false;
+  private eventTimer: number = 0;
   private strobeTimer: number = 0;
+
+  // Automated Spontaneous Event Director
+  // Starts first spontaneous event after 18 seconds, then every 35-50s
+  private cooldownTimer: number = 18.0;
 
   // Robber Kinematics
   private robberFromId: string = '';
@@ -37,7 +54,7 @@ export class PoliceChaseSystem {
   private robberNextId: string = '';
   private robberDist: number = 0;
   private robberLen: number = 0;
-  private robberSpeed: number = 19.5; // High speed ~70 km/h
+  private robberSpeed: number = 19.5; // ~70 km/h
   private robberHeading: number = 0;
   private robberPos: THREE.Vector3 = new THREE.Vector3(0, -999, 0);
 
@@ -47,16 +64,26 @@ export class PoliceChaseSystem {
   private policeNextId: string = '';
   private policeDist: number = 0;
   private policeLen: number = 0;
-  private policeSpeed: number = 20.0;
+  private policeSpeed: number = 20.2;
   private policeHeading: number = 0;
   private policePos: THREE.Vector3 = new THREE.Vector3(0, -999, 0);
+
+  // Ambulance Kinematics (High-speed emergency navigation)
+  private ambFromId: string = '';
+  private ambToId: string = '';
+  private ambNextId: string = '';
+  private ambDist: number = 0;
+  private ambLen: number = 0;
+  private ambSpeed: number = 18.0; // ~65 km/h
+  private ambHeading: number = 0;
+  private ambPos: THREE.Vector3 = new THREE.Vector3(0, -999, 0);
 
   // Callback for HUD Alert Banner
   private onStatusCallback?: (status: PoliceChaseStatus) => void;
 
   constructor() {
     this.group = new THREE.Group();
-    this.group.name = 'police_chase_system_group';
+    this.group.name = 'city_emergency_system_group';
 
     // 1. Build Custom Criminal Robber Racing Motorbike ("Xe Độ Cọp")
     this.robberBikeGroup = this.createRobberMotorbike();
@@ -71,9 +98,19 @@ export class PoliceChaseSystem {
     this.blueStrobeLight = policePack.blueStrobeLight;
     this.group.add(this.policeBikeGroup);
 
-    // Hide initially until chase event triggers
+    // 3. Build Vietnamese 115 Emergency Medical Ambulance
+    const ambPack = this.createAmbulanceVehicle();
+    this.ambulanceGroup = ambPack.group;
+    this.ambBeaconMat1 = ambPack.beaconMat1;
+    this.ambBeaconMat2 = ambPack.beaconMat2;
+    this.ambStrobeLight1 = ambPack.strobeLight1;
+    this.ambStrobeLight2 = ambPack.strobeLight2;
+    this.group.add(this.ambulanceGroup);
+
+    // Hide initially until an event triggers
     this.robberBikeGroup.visible = false;
     this.policeBikeGroup.visible = false;
+    this.ambulanceGroup.visible = false;
   }
 
   /**
@@ -99,40 +136,48 @@ export class PoliceChaseSystem {
     frontFairing.rotation.x = 0.25;
     group.add(frontFairing);
 
-    // Sport Racing Exhaust
-    const exhaustGeo = new THREE.CylinderGeometry(0.06, 0.07, 0.75, 10);
+    // Drag bar & Grips
+    const handlebarGeo = new THREE.BoxGeometry(0.68, 0.04, 0.04);
+    const handlebar = new THREE.Mesh(handlebarGeo, chromeMat);
+    handlebar.position.set(0, 0.92, 0.45);
+    group.add(handlebar);
+
+    // 2 Wheels (Tires & Rims)
+    const tireGeo = new THREE.CylinderGeometry(0.30, 0.30, 0.12, 12);
+    tireGeo.rotateZ(Math.PI / 2);
+
+    const frontTire = new THREE.Mesh(tireGeo, blackMat);
+    frontTire.position.set(0, 0.30, 0.68);
+    group.add(frontTire);
+
+    const rearTire = new THREE.Mesh(tireGeo, blackMat);
+    rearTire.position.set(0, 0.30, -0.62);
+    group.add(rearTire);
+
+    // Racing Exhaust Pipe
+    const exhaustGeo = new THREE.CylinderGeometry(0.06, 0.08, 0.65, 8);
     exhaustGeo.rotateX(Math.PI / 2);
     const exhaust = new THREE.Mesh(exhaustGeo, chromeMat);
-    exhaust.position.set(0.24, 0.32, -0.40);
-    exhaust.rotation.x = -0.2;
+    exhaust.position.set(0.24, 0.32, -0.42);
+    exhaust.rotation.x = -0.22;
     group.add(exhaust);
 
-    // Wheels
-    for (const z of [0.65, -0.65]) {
-      const wheelGeo = new THREE.CylinderGeometry(0.30, 0.30, 0.12, 14);
-      wheelGeo.rotateZ(Math.PI / 2);
-      const wheel = new THREE.Mesh(wheelGeo, blackMat);
-      wheel.position.set(0, 0.30, z);
-      group.add(wheel);
-    }
-
-    // Bandit Driver Figure (Black hoodie & dark helmet)
-    const torsoGeo = new THREE.BoxGeometry(0.36, 0.46, 0.26);
-    const torso = new THREE.Mesh(torsoGeo, blackMat);
-    torso.position.set(0, 1.08, -0.08);
-    torso.rotation.x = 0.32; // Leaning forward aggressively
+    // Bandit Driver Figure (Hoodie & Helmet)
+    const banditMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.8 });
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.48, 0.26), banditMat);
+    torso.position.set(0, 0.95, -0.05);
+    torso.rotation.x = 0.38; // aggressive forward lean
     group.add(torso);
 
-    const helmetGeo = new THREE.SphereGeometry(0.22, 12, 10);
-    const helmet = new THREE.Mesh(helmetGeo, blackMat);
-    helmet.position.set(0, 1.48, 0.08);
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.21, 12, 10), blackMat);
+    helmet.position.set(0, 1.35, 0.12);
     group.add(helmet);
 
     return group;
   }
 
   /**
-   * Builds authentic Vietnamese CSGT Police Patrol Motorbike with flashing emergency sirens
+   * Builds high-displacement Vietnamese CSGT Police Patrol Motorbike
    */
   private createPoliceMotorbike(): {
     group: THREE.Group;
@@ -142,81 +187,82 @@ export class PoliceChaseSystem {
     blueStrobeLight: THREE.PointLight;
   } {
     const group = new THREE.Group();
-    group.name = 'police_patrol_bike';
+    group.name = 'police_bike';
 
-    const whitePoliceMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.25, metalness: 0.4 });
-    const bluePoliceMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.3, metalness: 0.3 }); // Police blue
-    const csgtUniformMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.6, metalness: 0.1 }); // CSGT tan/khaki uniform
-    const blackTrimMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5 });
+    // Authentic CSGT Police colors (White body, navy stripes, gold badges)
+    const whitePoliceMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.25, metalness: 0.2 });
+    const blueStripeMat = new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.4 });
+    const blackTireMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.8 });
+    const chromeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.2, metalness: 0.85 });
+    const csgtUniformMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.7 }); // CSGT Yellow-Khaki uniform
 
-    // 1. Police Bike Body
-    const chassisGeo = new THREE.BoxGeometry(0.44, 0.48, 0.95);
-    const chassis = new THREE.Mesh(chassisGeo, whitePoliceMat);
-    chassis.position.set(0, 0.60, 0);
-    group.add(chassis);
+    // 1. Patrol Bike Body & Windshield
+    const bodyGeo = new THREE.BoxGeometry(0.48, 0.55, 1.15);
+    const body = new THREE.Mesh(bodyGeo, whitePoliceMat);
+    body.position.set(0, 0.62, 0.0);
+    group.add(body);
 
-    // Blue Police Decal Stripe
-    const stripeGeo = new THREE.BoxGeometry(0.45, 0.12, 0.96);
-    const stripe = new THREE.Mesh(stripeGeo, bluePoliceMat);
-    stripe.position.set(0, 0.62, 0);
-    group.add(stripe);
+    // Police side stripes
+    const stripeL = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.12, 0.95), blueStripeMat);
+    stripeL.position.set(0.245, 0.62, 0.0);
+    group.add(stripeL);
+    const stripeR = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.12, 0.95), blueStripeMat);
+    stripeR.position.set(-0.245, 0.62, 0.0);
+    group.add(stripeR);
 
-    // Tall aerodynamic police windshield
-    const shieldGeo = new THREE.BoxGeometry(0.40, 0.52, 0.04);
-    const shield = new THREE.Mesh(shieldGeo, new THREE.MeshStandardMaterial({ color: 0xe0f2fe, roughness: 0.1, transparent: true, opacity: 0.7 }));
-    shield.position.set(0, 1.15, 0.52);
-    shield.rotation.x = -0.25;
-    group.add(shield);
+    // Tall aerodynamic clear police windshield
+    const windshieldMat = new THREE.MeshStandardMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.65, roughness: 0.1 });
+    const windshield = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.45, 0.03), windshieldMat);
+    windshield.position.set(0, 1.15, 0.52);
+    windshield.rotation.x = -0.22;
+    group.add(windshield);
 
-    // Dual police side pannier hard cases
-    for (const sx of [-0.28, 0.28]) {
-      const caseGeo = new THREE.BoxGeometry(0.18, 0.32, 0.48);
-      const pCase = new THREE.Mesh(caseGeo, whitePoliceMat);
-      pCase.position.set(sx, 0.62, -0.48);
-      group.add(pCase);
+    // Heavy duty dual wheels
+    const wheelGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.14, 12);
+    wheelGeo.rotateZ(Math.PI / 2);
+    const frontWheel = new THREE.Mesh(wheelGeo, blackTireMat);
+    frontWheel.position.set(0, 0.32, 0.75);
+    group.add(frontWheel);
 
-      const caseStripe = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.08, 0.49), bluePoliceMat);
-      caseStripe.position.set(sx, 0.62, -0.48);
-      group.add(caseStripe);
-    }
+    const rearWheel = new THREE.Mesh(wheelGeo, blackTireMat);
+    rearWheel.position.set(0, 0.32, -0.68);
+    group.add(rearWheel);
 
-    // Heavy-duty wheels
-    for (const z of [0.72, -0.68]) {
-      const wheelGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.14, 14);
-      wheelGeo.rotateZ(Math.PI / 2);
-      const wheel = new THREE.Mesh(wheelGeo, blackTrimMat);
-      wheel.position.set(0, 0.32, z);
-      group.add(wheel);
-    }
+    // Rear Dual Police Side Boxes (White panniers)
+    const pannierGeo = new THREE.BoxGeometry(0.22, 0.30, 0.48);
+    const leftPannier = new THREE.Mesh(pannierGeo, whitePoliceMat);
+    leftPannier.position.set(0.34, 0.68, -0.55);
+    group.add(leftPannier);
 
-    // 2. High-Mast Rear Emergency Strobe Light Beacons (Red & Blue)
+    const rightPannier = new THREE.Mesh(pannierGeo, whitePoliceMat);
+    rightPannier.position.set(-0.34, 0.68, -0.55);
+    group.add(rightPannier);
+
+    // 2. High-Tech Emergency Strobe Light Mast
+    const mastGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.55, 6);
+    const mast = new THREE.Mesh(mastGeo, chromeMat);
+    mast.position.set(0.22, 1.15, -0.72);
+    group.add(mast);
+
     const redBeaconMat = new THREE.MeshBasicMaterial({ color: 0xff0033 });
     const blueBeaconMat = new THREE.MeshBasicMaterial({ color: 0x0066ff });
 
-    const mastGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.75, 8);
-    const mast = new THREE.Mesh(mastGeo, blackTrimMat);
-    mast.position.set(0.18, 1.05, -0.72);
-    group.add(mast);
-
-    const redBeacon = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.14, 10), redBeaconMat);
-    redBeacon.position.set(0.18, 1.45, -0.72);
+    const beaconGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.14, 8);
+    const redBeacon = new THREE.Mesh(beaconGeo, redBeaconMat);
+    redBeacon.position.set(0.22, 1.45, -0.72);
     group.add(redBeacon);
 
-    const mast2 = new THREE.Mesh(mastGeo, blackTrimMat);
-    mast2.position.set(-0.18, 1.05, -0.72);
-    group.add(mast2);
-
-    const blueBeacon = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.14, 10), blueBeaconMat);
-    blueBeacon.position.set(-0.18, 1.45, -0.72);
+    const blueBeacon = new THREE.Mesh(beaconGeo, blueBeaconMat);
+    blueBeacon.position.set(-0.22, 1.45, -0.72);
     group.add(blueBeacon);
 
     // Realtime Dynamic Emergency Point Lights
     const redStrobeLight = new THREE.PointLight(0xff0033, 4.0, 35, 1.5);
-    redStrobeLight.position.set(0.18, 1.55, -0.72);
+    redStrobeLight.position.set(0.22, 1.55, -0.72);
     group.add(redStrobeLight);
 
     const blueStrobeLight = new THREE.PointLight(0x0066ff, 4.0, 35, 1.5);
-    blueStrobeLight.position.set(-0.18, 1.55, -0.72);
+    blueStrobeLight.position.set(-0.22, 1.55, -0.72);
     group.add(blueStrobeLight);
 
     // 3. Police Officer Driver Figure (CSGT Uniform)
@@ -238,11 +284,159 @@ export class PoliceChaseSystem {
     };
   }
 
+  /**
+   * Builds authentic Vietnamese 115 Emergency Medical Ambulance (Toyota HiAce / Ford Transit)
+   */
+  private createAmbulanceVehicle(): {
+    group: THREE.Group;
+    beaconMat1: THREE.MeshBasicMaterial;
+    beaconMat2: THREE.MeshBasicMaterial;
+    strobeLight1: THREE.PointLight;
+    strobeLight2: THREE.PointLight;
+  } {
+    const group = new THREE.Group();
+    group.name = 'ambulance_vehicle';
+
+    // Materials
+    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.25, metalness: 0.08 });
+    const redStripeMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.35, metalness: 0.1 });
+    const redCrossMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.3, metalness: 0.1 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x0a1120, roughness: 0.15, metalness: 0.9 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.8, metalness: 0.2 });
+    const rimMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.2, metalness: 0.8 });
+    const bumperMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.6, metalness: 0.2 });
+
+    // 1. Main White Van Body Chassis
+    const lowerBody = new THREE.Mesh(new THREE.BoxGeometry(1.88, 0.95, 4.5), whiteMat);
+    lowerBody.position.set(0, 0.75, 0.0);
+    group.add(lowerBody);
+
+    // Aerodynamic Sloped Cabin / Hood
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.45, 1.05), whiteMat);
+    hood.position.set(0, 0.65, 1.85);
+    group.add(hood);
+
+    // Front Bumper
+    const frontBumper = new THREE.Mesh(new THREE.BoxGeometry(1.90, 0.32, 0.28), bumperMat);
+    frontBumper.position.set(0, 0.35, 2.40);
+    group.add(frontBumper);
+
+    // Rear Bumper
+    const rearBumper = new THREE.Mesh(new THREE.BoxGeometry(1.90, 0.28, 0.22), bumperMat);
+    rearBumper.position.set(0, 0.35, -2.32);
+    group.add(rearBumper);
+
+    // Medical High Roof Cap
+    const highRoof = new THREE.Mesh(new THREE.BoxGeometry(1.76, 0.48, 3.4), whiteMat);
+    highRoof.position.set(0, 1.45, -0.45);
+    group.add(highRoof);
+
+    // 2. Red Medical Beltline Stripe
+    const leftStripe = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.22, 4.35), redStripeMat);
+    leftStripe.position.set(0.95, 0.80, 0.05);
+    group.add(leftStripe);
+
+    const rightStripe = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.22, 4.35), redStripeMat);
+    rightStripe.position.set(-0.95, 0.80, 0.05);
+    group.add(rightStripe);
+
+    // 3. Iconic Red Crosses ➕ (Left, Right, Roof)
+    // Left Red Cross
+    const crossLeftH = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.14, 0.58), redCrossMat);
+    crossLeftH.position.set(0.955, 1.18, -0.3);
+    group.add(crossLeftH);
+    const crossLeftV = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.58, 0.14), redCrossMat);
+    crossLeftV.position.set(0.955, 1.18, -0.3);
+    group.add(crossLeftV);
+
+    // Right Red Cross
+    const crossRightH = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.14, 0.58), redCrossMat);
+    crossRightH.position.set(-0.955, 1.18, -0.3);
+    group.add(crossRightH);
+    const crossRightV = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.58, 0.14), redCrossMat);
+    crossRightV.position.set(-0.955, 1.18, -0.3);
+    group.add(crossRightV);
+
+    // Roof Red Cross
+    const crossRoofH = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.02, 0.14), redCrossMat);
+    crossRoofH.position.set(0, 1.70, -0.5);
+    group.add(crossRoofH);
+    const crossRoofV = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.02, 0.58), redCrossMat);
+    crossRoofV.position.set(0, 1.70, -0.5);
+    group.add(crossRoofV);
+
+    // 4. Windows (Dark Privacy Tint)
+    const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.68, 0.58, 0.06), glassMat);
+    windshield.rotation.x = -0.42;
+    windshield.position.set(0, 1.12, 1.48);
+    group.add(windshield);
+
+    const leftWin = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.42, 2.5), glassMat);
+    leftWin.position.set(0.95, 1.18, -0.6);
+    group.add(leftWin);
+    const rightWin = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.42, 2.5), glassMat);
+    rightWin.position.set(-0.95, 1.18, -0.6);
+    group.add(rightWin);
+
+    // 5. 4 Wheels & Rims
+    const wheelPositions = [
+      { x: 0.90, z: 1.45 },
+      { x: -0.90, z: 1.45 },
+      { x: 0.90, z: -1.35 },
+      { x: -0.90, z: -1.35 },
+    ];
+    for (const wp of wheelPositions) {
+      const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.33, 0.22, 10), tireMat);
+      tire.rotation.z = Math.PI / 2;
+      tire.position.set(wp.x, 0.33, wp.z);
+      group.add(tire);
+
+      const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.21, 0.23, 8), rimMat);
+      rim.rotation.z = Math.PI / 2;
+      rim.position.set(wp.x, 0.33, wp.z);
+      group.add(rim);
+    }
+
+    // 6. Emergency Lightbar on Roof
+    const barMount = new THREE.Mesh(new THREE.BoxGeometry(1.20, 0.08, 0.30), bumperMat);
+    barMount.position.set(0, 1.73, 0.75);
+    group.add(barMount);
+
+    const beaconMat1 = new THREE.MeshBasicMaterial({ color: 0xff0033 });
+    const beacon1 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.14, 0.24), beaconMat1);
+    beacon1.position.set(0.40, 1.84, 0.75);
+    group.add(beacon1);
+
+    const beaconMat2 = new THREE.MeshBasicMaterial({ color: 0x0066ff });
+    const beacon2 = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.14, 0.24), beaconMat2);
+    beacon2.position.set(-0.40, 1.84, 0.75);
+    group.add(beacon2);
+
+    // Realtime Dynamic Emergency PointLights
+    const strobeLight1 = new THREE.PointLight(0xff0033, 4.5, 38, 1.5);
+    strobeLight1.position.set(0.40, 1.95, 0.75);
+    group.add(strobeLight1);
+
+    const strobeLight2 = new THREE.PointLight(0x0066ff, 4.5, 38, 1.5);
+    strobeLight2.position.set(-0.40, 1.95, 0.75);
+    group.add(strobeLight2);
+
+    return {
+      group,
+      beaconMat1,
+      beaconMat2,
+      strobeLight1,
+      strobeLight2,
+    };
+  }
+
   public setEnvironment(roadGraph: RoadNetworkGraph): void {
-    if (this.isActive) {
-      this.stopChaseEvent();
+    if (this.currentEvent !== 'none') {
+      this.stopEmergencyEvent();
     }
     this.roadGraph = roadGraph;
+    // Reset automatic timer
+    this.cooldownTimer = 18.0;
   }
 
   public setStatusCallback(callback: (status: PoliceChaseStatus) => void): void {
@@ -263,13 +457,12 @@ export class PoliceChaseSystem {
   }
 
   /**
-   * Triggers a dramatic, high-speed Police Chase pursuit event across city streets
+   * Finds candidate road edge near given coordinates
    */
-  public startChaseEvent(nearPos?: { x: number; z: number }): void {
-    if (!this.roadGraph || this.roadGraph.edges.length < 2) return;
+  private findStartingEdge(nearPos?: { x: number; z: number }): RoadGraphEdge | undefined {
+    if (!this.roadGraph || this.roadGraph.edges.length < 2) return undefined;
 
     let startEdge: RoadGraphEdge | undefined;
-
     if (nearPos) {
       let bestDist = Infinity;
       for (const edge of this.roadGraph.edges) {
@@ -289,7 +482,6 @@ export class PoliceChaseSystem {
     }
 
     if (!startEdge) {
-      // Pick a prominent starting edge
       const candidateEdges = this.roadGraph.edges.filter((e) => {
         const n1 = this.roadGraph!.nodes.get(e.fromId);
         const n2 = this.roadGraph!.nodes.get(e.toId);
@@ -299,13 +491,27 @@ export class PoliceChaseSystem {
 
       startEdge = candidateEdges[Math.floor(Math.random() * candidateEdges.length)] || this.roadGraph.edges[0];
     }
+    return startEdge;
+  }
+
+  /**
+   * Triggers Police Chase pursuit event
+   */
+  public startChaseEvent(nearPos?: { x: number; z: number }): void {
+    if (!this.roadGraph || this.roadGraph.edges.length < 2) return;
+
+    this.stopEmergencyEvent();
+
+    const startEdge = this.findStartingEdge(nearPos);
+    if (!startEdge) return;
+
     const n1 = this.roadGraph.nodes.get(startEdge.fromId)!;
     const n2 = this.roadGraph.nodes.get(startEdge.toId)!;
     const len = Math.hypot(n2.x - n1.x, n2.z - n1.z);
 
-    this.isActive = true;
-    this.isCaught = false;
-    this.chaseTimer = 0;
+    this.currentEvent = 'police_chase';
+    this.isCompleted = false;
+    this.eventTimer = 0;
     this.strobeTimer = 0;
 
     // Robber starts ahead (at 55% of edge)
@@ -328,167 +534,349 @@ export class PoliceChaseSystem {
 
     this.robberBikeGroup.visible = true;
     this.policeBikeGroup.visible = true;
+    this.ambulanceGroup.visible = false;
 
     // Start wailing police siren
     AudioManager.getInstance().startPoliceSiren(25);
   }
 
-  public stopChaseEvent(): void {
-    this.isActive = false;
-    this.isCaught = false;
+  /**
+   * Triggers 115 Emergency Medical Ambulance Rush event
+   */
+  public startAmbulanceEvent(nearPos?: { x: number; z: number }): void {
+    if (!this.roadGraph || this.roadGraph.edges.length < 2) return;
+
+    this.stopEmergencyEvent();
+
+    const startEdge = this.findStartingEdge(nearPos);
+    if (!startEdge) return;
+
+    const n1 = this.roadGraph.nodes.get(startEdge.fromId)!;
+    const n2 = this.roadGraph.nodes.get(startEdge.toId)!;
+    const len = Math.hypot(n2.x - n1.x, n2.z - n1.z);
+
+    this.currentEvent = 'ambulance_rush';
+    this.isCompleted = false;
+    this.eventTimer = 0;
+    this.strobeTimer = 0;
+
+    this.ambFromId = n1.id;
+    this.ambToId = n2.id;
+    this.ambNextId = this.pickNextNode(n2.id, n1.id);
+    this.ambDist = Math.max(2, len * 0.20);
+    this.ambLen = len;
+    this.ambSpeed = 18.5; // ~66 km/h
+    this.ambHeading = Math.atan2(n2.x - n1.x, n2.z - n1.z);
+
     this.robberBikeGroup.visible = false;
     this.policeBikeGroup.visible = false;
+    this.ambulanceGroup.visible = true;
+
+    // Start authentic two-tone ambulance siren
+    AudioManager.getInstance().startAmbulanceSiren(25);
+  }
+
+  /**
+   * Toggles emergency event manually (or cycles between Police Chase -> Ambulance Rush -> Stop)
+   */
+  public toggleManualEvent(nearPos?: { x: number; z: number }): void {
+    if (this.currentEvent === 'none') {
+      if (Math.random() < 0.5) {
+        this.startChaseEvent(nearPos);
+      } else {
+        this.startAmbulanceEvent(nearPos);
+      }
+    } else if (this.currentEvent === 'police_chase') {
+      this.startAmbulanceEvent(nearPos);
+    } else {
+      this.stopEmergencyEvent();
+    }
+  }
+
+  public stopEmergencyEvent(): void {
+    this.currentEvent = 'none';
+    this.isCompleted = false;
+    this.robberBikeGroup.visible = false;
+    this.policeBikeGroup.visible = false;
+    this.ambulanceGroup.visible = false;
+
     AudioManager.getInstance().stopPoliceSiren();
+    AudioManager.getInstance().stopAmbulanceSiren();
+
+    // Reset cooldown for next random spontaneous city event (35 to 55 seconds)
+    this.cooldownTimer = 35.0 + Math.random() * 20.0;
 
     this.onStatusCallback?.({
       isActive: false,
+      eventType: 'none',
       distanceToPlayer: 999,
-      robberPos: { x: 0, y: 0, z: 0 },
-      policePos: { x: 0, y: 0, z: 0 },
-      chaseDuration: 0,
+      duration: 0,
+      icon: '',
+      badge: '',
       message: '',
     });
   }
 
+  // Alias for backward compatibility
+  public stopChaseEvent(): void {
+    this.stopEmergencyEvent();
+  }
+
   public getIsActive(): boolean {
-    return this.isActive;
+    return this.currentEvent !== 'none';
+  }
+
+  public getCurrentEventType(): EmergencyEventType {
+    return this.currentEvent;
   }
 
   /**
-   * Main per-frame update loop for the pursuit simulation
+   * Main per-frame update loop for the emergency events and autonomic director
    */
   public update(deltaTime: number, playerPos?: { x: number; z: number }): void {
-    if (!this.isActive || !this.roadGraph) return;
+    if (!this.roadGraph) return;
     const dt = Math.min(deltaTime, 0.08);
 
-    this.chaseTimer += dt;
+    // ─────────────────────────────────────────────────────────────────────────
+    // A. AUTONOMIC EVENT SCHEDULER (Tự động kích hoạt sự kiện ngẫu nhiên trên phố)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (this.currentEvent === 'none') {
+      this.cooldownTimer -= dt;
+      if (this.cooldownTimer <= 0) {
+        // Automatically spawn a spontaneous city event near player!
+        const pick = Math.random() < 0.5 ? 'police_chase' : 'ambulance_rush';
+        if (pick === 'police_chase') {
+          this.startChaseEvent(playerPos);
+        } else {
+          this.startAmbulanceEvent(playerPos);
+        }
+      }
+      return;
+    }
+
+    this.eventTimer += dt;
     this.strobeTimer += dt;
 
-    // 1. Alternate Emergency Flashing Red & Blue Strobe Lights (~4 Hz)
-    const strobePhase = Math.sin(this.strobeTimer * 26.0) > 0;
-    if (strobePhase) {
-      this.redBeaconMat.color.setHex(0xff0033);
-      this.blueBeaconMat.color.setHex(0x001144); // dimmed blue
-      this.redStrobeLight.intensity = 5.5;
-      this.blueStrobeLight.intensity = 0.2;
-    } else {
-      this.redBeaconMat.color.setHex(0x330011); // dimmed red
-      this.blueBeaconMat.color.setHex(0x0066ff);
-      this.redStrobeLight.intensity = 0.2;
-      this.blueStrobeLight.intensity = 5.5;
-    }
-
-    // 2. Advance Robber Vehicle
-    const rN1 = this.roadGraph.nodes.get(this.robberFromId);
-    const rN2 = this.roadGraph.nodes.get(this.robberToId);
-    if (rN1 && rN2) {
-      const rDx = rN2.x - rN1.x;
-      const rDz = rN2.z - rN1.z;
-      const rLen = Math.hypot(rDx, rDz) || 1;
-
-      this.robberDist += this.robberSpeed * dt;
-
-      if (this.robberDist >= rLen) {
-        // Transition to next road branch
-        this.robberDist = 0;
-        this.robberFromId = this.robberToId;
-        this.robberToId = this.robberNextId;
-        this.robberNextId = this.pickNextNode(this.robberToId, this.robberFromId);
+    // ─────────────────────────────────────────────────────────────────────────
+    // B. POLICE PURSUIT SIMULATION
+    // ─────────────────────────────────────────────────────────────────────────
+    if (this.currentEvent === 'police_chase') {
+      // 1. Alternate Emergency Flashing Red & Blue Strobe Lights (~4 Hz)
+      const strobePhase = Math.sin(this.strobeTimer * 26.0) > 0;
+      if (strobePhase) {
+        this.redBeaconMat.color.setHex(0xff0033);
+        this.blueBeaconMat.color.setHex(0x001144);
+        this.redStrobeLight.intensity = 5.5;
+        this.blueStrobeLight.intensity = 0.2;
+      } else {
+        this.redBeaconMat.color.setHex(0x330011);
+        this.blueBeaconMat.color.setHex(0x0066ff);
+        this.redStrobeLight.intensity = 0.2;
+        this.blueStrobeLight.intensity = 5.5;
       }
 
-      const tR = Math.max(0, Math.min(1, this.robberDist / rLen));
-      const rGroundY = (rN1.y ?? 0.08) + ((rN2.y ?? 0.08) - (rN1.y ?? 0.08)) * tR + 0.08;
+      // 2. Advance Robber Vehicle
+      const rN1 = this.roadGraph.nodes.get(this.robberFromId);
+      const rN2 = this.roadGraph.nodes.get(this.robberToId);
+      if (rN1 && rN2) {
+        const rDx = rN2.x - rN1.x;
+        const rDz = rN2.z - rN1.z;
+        const rLen = Math.hypot(rDx, rDz) || 1;
 
-      // Slight erratic swerving
-      const swerve = Math.sin(this.chaseTimer * 5.0) * 0.45;
-      const rHeading = Math.atan2(rDx, rDz);
-      const rPerpX = -Math.cos(rHeading);
-      const rPerpZ = Math.sin(rHeading);
+        this.robberDist += this.robberSpeed * dt;
 
-      this.robberPos.set(
-        rN1.x + rDx * tR + rPerpX * swerve,
-        rGroundY,
-        rN1.z + rDz * tR + rPerpZ * swerve
-      );
-      this.robberHeading = rHeading;
+        if (this.robberDist >= rLen) {
+          this.robberDist = 0;
+          this.robberFromId = this.robberToId;
+          this.robberToId = this.robberNextId;
+          this.robberNextId = this.pickNextNode(this.robberToId, this.robberFromId);
+        }
 
-      this.robberBikeGroup.position.copy(this.robberPos);
-      this.robberBikeGroup.rotation.y = this.robberHeading;
-      this.robberBikeGroup.rotation.z = swerve * 0.35; // Racing motorcycle lean
-    }
+        const tR = Math.max(0, Math.min(1, this.robberDist / rLen));
+        const rGroundY = (rN1.y ?? 0.08) + ((rN2.y ?? 0.08) - (rN1.y ?? 0.08)) * tR + 0.08;
 
-    // 3. Advance Police Pursuit Vehicle (Aggressively tracking robber)
-    const pN1 = this.roadGraph.nodes.get(this.policeFromId);
-    const pN2 = this.roadGraph.nodes.get(this.policeToId);
-    if (pN1 && pN2) {
-      const pDx = pN2.x - pN1.x;
-      const pDz = pN2.z - pN1.z;
-      const pLen = Math.hypot(pDx, pDz) || 1;
+        const swerve = Math.sin(this.eventTimer * 5.0) * 0.45;
+        const rHeading = Math.atan2(rDx, rDz);
+        const rPerpX = -Math.cos(rHeading);
+        const rPerpZ = Math.sin(rHeading);
 
-      this.policeDist += this.policeSpeed * dt;
+        this.robberPos.set(
+          rN1.x + rDx * tR + rPerpX * swerve,
+          rGroundY,
+          rN1.z + rDz * tR + rPerpZ * swerve
+        );
+        this.robberHeading = rHeading;
 
-      if (this.policeDist >= pLen) {
-        this.policeDist = 0;
-        this.policeFromId = this.policeToId;
-        this.policeToId = this.policeNextId;
-        this.policeNextId = this.robberToId; // Track toward robber's current road
+        this.robberBikeGroup.position.copy(this.robberPos);
+        this.robberBikeGroup.rotation.y = this.robberHeading;
+        this.robberBikeGroup.rotation.z = swerve * 0.35;
       }
 
-      const tP = Math.max(0, Math.min(1, this.policeDist / pLen));
-      const pGroundY = (pN1.y ?? 0.08) + ((pN2.y ?? 0.08) - (pN1.y ?? 0.08)) * tP + 0.08;
-      const pHeading = Math.atan2(pDx, pDz);
+      // 3. Advance Police Pursuit Vehicle
+      const pN1 = this.roadGraph.nodes.get(this.policeFromId);
+      const pN2 = this.roadGraph.nodes.get(this.policeToId);
+      if (pN1 && pN2) {
+        const pDx = pN2.x - pN1.x;
+        const pDz = pN2.z - pN1.z;
+        const pLen = Math.hypot(pDx, pDz) || 1;
 
-      this.policePos.set(
-        pN1.x + pDx * tP,
-        pGroundY,
-        pN1.z + pDz * tP
-      );
-      this.policeHeading = pHeading;
+        this.policeDist += this.policeSpeed * dt;
 
-      this.policeBikeGroup.position.copy(this.policePos);
-      this.policeBikeGroup.rotation.y = this.policeHeading;
-    }
+        if (this.policeDist >= pLen) {
+          this.policeDist = 0;
+          this.policeFromId = this.policeToId;
+          this.policeToId = this.policeNextId;
+          this.policeNextId = this.robberToId;
+        }
 
-    // 4. Distance to Player & Dynamic Siren Spatialization
-    let distToPlayer = 999;
-    if (playerPos) {
-      distToPlayer = Math.hypot(this.policePos.x - playerPos.x, this.policePos.z - playerPos.z);
-      AudioManager.getInstance().updatePoliceSirenDistance(distToPlayer);
-    }
+        const tP = Math.max(0, Math.min(1, this.policeDist / pLen));
+        const pGroundY = (pN1.y ?? 0.08) + ((pN2.y ?? 0.08) - (pN1.y ?? 0.08)) * tP + 0.08;
+        const pHeading = Math.atan2(pDx, pDz);
 
-    // 5. Interception & Capture Condition
-    const gapToRobber = this.policePos.distanceTo(this.robberPos);
-    if (this.chaseTimer > 40 || gapToRobber < 5.5) {
-      if (!this.isCaught) {
-        this.isCaught = true;
-        this.robberSpeed = 0;
-        this.policeSpeed = 0;
-        AudioManager.getInstance().playPoliceChirp();
+        this.policePos.set(
+          pN1.x + pDx * tP,
+          pGroundY,
+          pN1.z + pDz * tP
+        );
+        this.policeHeading = pHeading;
+
+        this.policeBikeGroup.position.copy(this.policePos);
+        this.policeBikeGroup.rotation.y = this.policeHeading;
       }
 
-      // Conclude event after 6 seconds of successful capture
-      if (this.chaseTimer > 46) {
-        this.stopChaseEvent();
-        return;
+      // 4. Distance to Player & Dynamic Siren Spatialization
+      let distToPlayer = 999;
+      if (playerPos) {
+        distToPlayer = Math.hypot(this.policePos.x - playerPos.x, this.policePos.z - playerPos.z);
+        AudioManager.getInstance().updatePoliceSirenDistance(distToPlayer);
       }
+
+      // 5. Interception & Capture Condition
+      const gapToRobber = this.policePos.distanceTo(this.robberPos);
+      if (this.eventTimer > 36 || gapToRobber < 5.5) {
+        if (!this.isCompleted) {
+          this.isCompleted = true;
+          this.robberSpeed = 0;
+          this.policeSpeed = 0;
+          AudioManager.getInstance().playPoliceChirp();
+        }
+
+        if (this.eventTimer > 42) {
+          this.stopEmergencyEvent();
+          return;
+        }
+      }
+
+      let message = '';
+      if (this.isCompleted) {
+        message = '👮 ĐÃ BẮT GIỮ THÀNH CÔNG ĐỐI TƯỢNG CƯỚP GIẬT!';
+      } else {
+        const distStr = playerPos ? ` (Cách bạn ${Math.round(distToPlayer)}m)` : '';
+        message = `Cảnh sát CSGT đang rượt đuổi đối tượng cướp giật phóng bạt mạng!${distStr}`;
+      }
+
+      this.onStatusCallback?.({
+        isActive: true,
+        eventType: 'police_chase',
+        distanceToPlayer: distToPlayer,
+        robberPos: { x: this.robberPos.x, y: this.robberPos.y, z: this.robberPos.z },
+        policePos: { x: this.policePos.x, y: this.policePos.y, z: this.policePos.z },
+        duration: this.eventTimer,
+        icon: '🚨',
+        badge: 'CẢNH SÁT TRUY BẮT',
+        message,
+      });
+      return;
     }
 
-    // Status Message for In-Game Banner
-    let message = '';
-    if (this.isCaught) {
-      message = '👮 ĐÃ KHỐNG CHẾ & BẮT GIỮ THÀNH CÔNG ĐỐI TƯỢNG CƯỚP!';
-    } else {
-      const distStr = playerPos ? ` (Cách bạn ${Math.round(distToPlayer)}m)` : '';
-      message = `🚨 SỰ KIỆN: Cảnh sát đang truy bắt đối tượng cướp giật!${distStr}`;
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // C. 115 AMBULANCE EMERGENCY RUSH SIMULATION
+    // ─────────────────────────────────────────────────────────────────────────
+    if (this.currentEvent === 'ambulance_rush') {
+      // 1. Alternate Emergency Flashing Red & Blue Beacons (~4 Hz)
+      const strobePhase = Math.sin(this.strobeTimer * 26.0) > 0;
+      if (strobePhase) {
+        this.ambBeaconMat1.color.setHex(0xff0033);
+        this.ambBeaconMat2.color.setHex(0x001144);
+        this.ambStrobeLight1.intensity = 5.5;
+        this.ambStrobeLight2.intensity = 0.2;
+      } else {
+        this.ambBeaconMat1.color.setHex(0x330011);
+        this.ambBeaconMat2.color.setHex(0x0066ff);
+        this.ambStrobeLight1.intensity = 0.2;
+        this.ambStrobeLight2.intensity = 5.5;
+      }
 
-    this.onStatusCallback?.({
-      isActive: true,
-      distanceToPlayer: distToPlayer,
-      robberPos: { x: this.robberPos.x, y: this.robberPos.y, z: this.robberPos.z },
-      policePos: { x: this.policePos.x, y: this.policePos.y, z: this.policePos.z },
-      chaseDuration: this.chaseTimer,
-      message,
-    });
+      // 2. Advance Ambulance Vehicle along Road Graph
+      const aN1 = this.roadGraph.nodes.get(this.ambFromId);
+      const aN2 = this.roadGraph.nodes.get(this.ambToId);
+      if (aN1 && aN2) {
+        const aDx = aN2.x - aN1.x;
+        const aDz = aN2.z - aN1.z;
+        const aLen = Math.hypot(aDx, aDz) || 1;
+
+        this.ambDist += this.ambSpeed * dt;
+
+        if (this.ambDist >= aLen) {
+          this.ambDist = 0;
+          this.ambFromId = this.ambToId;
+          this.ambToId = this.ambNextId;
+          this.ambNextId = this.pickNextNode(this.ambToId, this.ambFromId);
+        }
+
+        const tA = Math.max(0, Math.min(1, this.ambDist / aLen));
+        const aGroundY = (aN1.y ?? 0.08) + ((aN2.y ?? 0.08) - (aN1.y ?? 0.08)) * tA + 0.08;
+        const aHeading = Math.atan2(aDx, aDz);
+
+        this.ambPos.set(
+          aN1.x + aDx * tA,
+          aGroundY,
+          aN1.z + aDz * tA
+        );
+        this.ambHeading = aHeading;
+
+        this.ambulanceGroup.position.copy(this.ambPos);
+        this.ambulanceGroup.rotation.y = this.ambHeading;
+      }
+
+      // 3. Distance to Player & Dynamic Siren Spatialization
+      let distToPlayer = 999;
+      if (playerPos) {
+        distToPlayer = Math.hypot(this.ambPos.x - playerPos.x, this.ambPos.z - playerPos.z);
+        AudioManager.getInstance().updateAmbulanceSirenDistance(distToPlayer);
+      }
+
+      // 4. Mission Hospital Delivery Condition (after 36 seconds)
+      if (this.eventTimer > 35) {
+        if (!this.isCompleted) {
+          this.isCompleted = true;
+          this.ambSpeed = 0;
+        }
+
+        if (this.eventTimer > 41) {
+          this.stopEmergencyEvent();
+          return;
+        }
+      }
+
+      let message = '';
+      if (this.isCompleted) {
+        message = '🏥 XE CẤP CỨU 115 ĐÃ ĐƯA BỆNH NHÂN ĐẾN BỆNH VIỆN AN TOÀN!';
+      } else {
+        const distStr = playerPos ? ` (Cách bạn ${Math.round(distToPlayer)}m)` : '';
+        message = `Xe cứu thương 115 đang hối hả vượt ngã tư đưa bệnh nhân đi cấp cứu!${distStr}`;
+      }
+
+      this.onStatusCallback?.({
+        isActive: true,
+        eventType: 'ambulance_rush',
+        distanceToPlayer: distToPlayer,
+        ambulancePos: { x: this.ambPos.x, y: this.ambPos.y, z: this.ambPos.z },
+        duration: this.eventTimer,
+        icon: '🚑',
+        badge: 'CẤP CỨU 115',
+        message,
+      });
+    }
   }
 }

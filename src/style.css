@@ -705,6 +705,32 @@ html, body {
   }
 }
 
+.chase-banner-content.ambulance-mode {
+  border-color: rgba(239, 68, 68, 0.95);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 28px rgba(239, 68, 68, 0.7), inset 0 0 15px rgba(255, 255, 255, 0.2);
+  animation: ambulanceBorderGlow 0.9s infinite alternate ease-in-out;
+}
+
+@keyframes ambulanceBorderGlow {
+  0% {
+    border-color: rgba(239, 68, 68, 0.95);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 30px rgba(239, 68, 68, 0.75);
+  }
+  100% {
+    border-color: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 25px rgba(255, 255, 255, 0.6);
+  }
+}
+
+.chase-siren-indicator.ambulance-badge {
+  background: rgba(239, 68, 68, 0.28);
+  border-color: rgba(239, 68, 68, 0.7);
+}
+
+.chase-siren-indicator.ambulance-badge .chase-badge-text {
+  color: #ffffff;
+}
+
 .chase-siren-indicator {
   display: flex;
   align-items: center;

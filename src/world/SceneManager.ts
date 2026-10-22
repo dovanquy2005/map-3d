@@ -49,14 +49,67 @@ export class SceneManager {
     this.renderer.toneMappingExposure = 1.25;
     container.appendChild(this.renderer.domElement);
 
-    // 4. Orbit Controls
+    // 4. Orbit Controls (Optimized for Map Drag / Pan across the city)
     this.orbitControls = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbitControls.enableDamping = true;
-    this.orbitControls.dampingFactor = 0.05;
-    this.orbitControls.maxPolarAngle = Math.PI / 2 - 0.08;
-    this.orbitControls.minDistance = 20;
+    this.orbitControls.dampingFactor = 0.08;
+    this.orbitControls.maxPolarAngle = Math.PI / 2 - 0.06;
+    this.orbitControls.minDistance = 15;
     this.orbitControls.maxDistance = 6500;
     this.orbitControls.target.set(0, 0, 0);
+
+    // CRITICAL: Ground-plane panning (slides along XZ plane across the city!)
+    this.orbitControls.screenSpacePanning = false;
+    this.orbitControls.panSpeed = 1.35;
+
+    // Map GIS UX: LEFT DRAG = Pan map; RIGHT DRAG = Rotate angle; SCROLL = Zoom
+    this.orbitControls.mouseButtons = {
+      LEFT: THREE.MOUSE.PAN,
+      MIDDLE: THREE.MOUSE.DOLLY,
+      RIGHT: THREE.MOUSE.ROTATE,
+    };
+    this.orbitControls.touches = {
+      ONE: THREE.TOUCH.PAN,
+      TWO: THREE.TOUCH.DOLLY_ROTATE,
+    };
+
+    // Prevent default browser context menu on right click
+    this.renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Keyboard Pan Navigation in Orbit Mode (Arrow keys & WASD)
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (this.cameraMode !== 'orbit') return;
+
+      const panDist = e.shiftKey ? 60 : 25;
+      const forward = new THREE.Vector3();
+      this.camera.getWorldDirection(forward);
+      forward.y = 0;
+      forward.normalize();
+      const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+
+      let moved = false;
+      if (e.code === 'KeyW' || e.code === 'ArrowUp') {
+        this.orbitControls.target.addScaledVector(forward, panDist);
+        this.camera.position.addScaledVector(forward, panDist);
+        moved = true;
+      } else if (e.code === 'KeyS' || e.code === 'ArrowDown') {
+        this.orbitControls.target.addScaledVector(forward, -panDist);
+        this.camera.position.addScaledVector(forward, -panDist);
+        moved = true;
+      } else if (e.code === 'KeyA' || e.code === 'ArrowLeft') {
+        this.orbitControls.target.addScaledVector(right, panDist);
+        this.camera.position.addScaledVector(right, panDist);
+        moved = true;
+      } else if (e.code === 'KeyD' || e.code === 'ArrowRight') {
+        this.orbitControls.target.addScaledVector(right, -panDist);
+        this.camera.position.addScaledVector(right, -panDist);
+        moved = true;
+      }
+
+      if (moved) {
+        this.orbitControls.update();
+      }
+    });
 
     // 5. Lighting - Warm Tropical Sun + Soft Neutral Skylight (Crisp diagonal shadows)
     this.hemiLight = new THREE.HemisphereLight(0xfffbeb, 0xcfd4dc, 1.15);
@@ -125,6 +178,21 @@ export class SceneManager {
 
   public getCameraMode(): 'orbit' | 'shipper' {
     return this.cameraMode;
+  }
+
+  /**
+   * Smoothly focuses the camera onto target coordinates (e.g. active police chase or ambulance)
+   */
+  public focusOn(x: number, y: number, z: number, dist: number = 80, angle?: number): void {
+    const yaw = angle !== undefined ? angle : Math.PI / 4;
+    const offsetX = -Math.sin(yaw) * dist * 0.9;
+    const offsetZ = -Math.cos(yaw) * dist * 0.9;
+    const offsetY = Math.max(30, dist * 0.65);
+
+    this.orbitControls.target.set(x, y + 1.2, z);
+    this.camera.position.set(x + offsetX, y + offsetY, z + offsetZ);
+    this.camera.lookAt(x, y + 1.2, z);
+    this.orbitControls.update();
   }
 
   public clearWorldObjects(): void {

@@ -553,5 +553,94 @@ export class AudioManager {
       osc.stop(t + 0.23);
     } catch {}
   }
+
+  // =========================================================================
+  // 115 EMERGENCY AMBULANCE SIREN SYNTHESIZER (HI-LO DUAL TONE)
+  // =========================================================================
+  private ambulanceGain: GainNode | null = null;
+  private ambulanceOsc: OscillatorNode | null = null;
+  private ambulanceLfo: OscillatorNode | null = null;
+  private isAmbulanceSirenActive: boolean = false;
+
+  /**
+   * Starts authentic Vietnamese 115 Ambulance Hi-Lo two-tone siren ("è-oo è-oo...")
+   */
+  public startAmbulanceSiren(initialDistMeters: number = 25): void {
+    this.ensureResumed();
+    const ctx = this.initContext();
+    if (!ctx || !this.masterGain || this.isAmbulanceSirenActive) return;
+
+    try {
+      this.isAmbulanceSirenActive = true;
+      const t = ctx.currentTime;
+
+      this.ambulanceGain = ctx.createGain();
+      const initialVol = Math.max(0.05, Math.min(0.72, (1.0 - initialDistMeters / 220.0) * 0.72));
+      this.ambulanceGain.gain.setValueAtTime(0.01, t);
+      this.ambulanceGain.gain.linearRampToValueAtTime(this.isMuted ? 0 : initialVol, t + 0.25);
+
+      this.ambulanceOsc = ctx.createOscillator();
+      this.ambulanceOsc.type = 'sawtooth';
+
+      // Square wave LFO to alternate between Hi (940Hz) and Lo (720Hz)
+      this.ambulanceLfo = ctx.createOscillator();
+      this.ambulanceLfo.type = 'square';
+      this.ambulanceLfo.frequency.setValueAtTime(1.18, t); // ~1.18 Hz = 0.42s hi, 0.42s lo
+
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.setValueAtTime(115, t); // Center 830Hz +/- 115Hz -> 715Hz & 945Hz
+
+      this.ambulanceOsc.frequency.setValueAtTime(830, t);
+      this.ambulanceLfo.connect(lfoGain);
+      lfoGain.connect(this.ambulanceOsc.frequency);
+
+      // Bandpass filter to model metal siren loudspeaker
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(840, t);
+      filter.Q.setValueAtTime(2.2, t);
+
+      this.ambulanceOsc.connect(filter);
+      filter.connect(this.ambulanceGain);
+      this.ambulanceGain.connect(this.masterGain);
+
+      this.ambulanceLfo.start(t);
+      this.ambulanceOsc.start(t);
+    } catch {}
+  }
+
+  /**
+   * Updates ambulance siren volume dynamically based on distance to player
+   */
+  public updateAmbulanceSirenDistance(distMeters: number): void {
+    if (!this.isAmbulanceSirenActive || !this.ctx || !this.ambulanceGain) return;
+    const vol = Math.max(0.02, Math.min(0.72, (1.0 - Math.min(1.0, distMeters / 250.0)) * 0.72));
+    this.ambulanceGain.gain.setTargetAtTime(this.isMuted ? 0 : vol, this.ctx.currentTime, 0.1);
+  }
+
+  /**
+   * Stops ambulance siren with a smooth fade
+   */
+  public stopAmbulanceSiren(): void {
+    if (!this.isAmbulanceSirenActive || !this.ctx) return;
+    this.isAmbulanceSirenActive = false;
+
+    if (this.ambulanceGain) {
+      this.ambulanceGain.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
+    }
+
+    setTimeout(() => {
+      try {
+        this.ambulanceOsc?.stop();
+        this.ambulanceLfo?.stop();
+        this.ambulanceOsc?.disconnect();
+        this.ambulanceLfo?.disconnect();
+      } catch {}
+      this.ambulanceOsc = null;
+      this.ambulanceLfo = null;
+      this.ambulanceGain = null;
+    }, 350);
+  }
 }
+
 

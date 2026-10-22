@@ -104,9 +104,9 @@
           <span id="btn-build-text">🚀 DỰNG KHU NÀY (BUILD 3D)</span>
         </button>
 
-        <!-- Dynamic Police Chase Pursuit Trigger Button -->
-        <button id="btn-trigger-chase" class="btn-chase-event" title="Kích hoạt sự kiện Cảnh sát truy đuổi bắt cướp tốc độ cao (Phím P)">
-          <span>🚨 SỰ KIỆN TRUY BẮT (POLICE CHASE)</span>
+        <!-- Dynamic Emergency Events (Auto-triggers spontaneously or manual test toggle) -->
+        <button id="btn-trigger-chase" class="btn-chase-event" title="Sự kiện khẩn cấp tự động xuất hiện ngẫu nhiên trên phố (Phím P hoặc Click để thử nghiệm ngay)">
+          <span>🚨 SỰ KIỆN: CẢNH SÁT & CỨU THƯƠNG 115</span>
         </button>
 
         <!-- Real-time Hardware Metrics -->
@@ -143,17 +143,17 @@
         <span class="tab-label">🛵 BẢNG ĐIỀU KHIỂN</span>
       </button>
 
-      <!-- Police Chase Emergency HUD Banner -->
+      <!-- City Emergency Event Top Banner (Spontaneous Police Chase & Ambulance 115) -->
       <div id="police-chase-banner" class="chase-banner-overlay" style="display: none;">
-        <div class="chase-banner-content">
-          <div class="chase-siren-indicator">
-            <span class="siren-pulse-red">🚨</span>
-            <span class="chase-badge-text">TRUY BẮT KHẨN CẤP</span>
+        <div class="chase-banner-content" id="chase-banner-box">
+          <div class="chase-siren-indicator" id="chase-badge-box">
+            <span class="siren-pulse-red" id="chase-icon">🚨</span>
+            <span class="chase-badge-text" id="chase-badge-title">TRUY BẮT KHẨN CẤP</span>
           </div>
           <div class="chase-banner-text" id="chase-banner-msg">
             Cảnh sát giao thông đang rượt đuổi đối tượng cướp giật phóng nhanh!
           </div>
-          <button id="btn-close-chase" class="btn-chase-dismiss" title="Kết thúc sự kiện">✕</button>
+          <button id="btn-close-chase" class="btn-chase-dismiss" title="Đóng thông báo sự kiện">✕</button>
         </div>
       </div>
 

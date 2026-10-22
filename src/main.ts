@@ -65,9 +65,13 @@ class SaigonShipperApp {
   private elBlinkerRight!: HTMLElement;
   private elBtnHorn!: HTMLButtonElement;
 
-  // Police Chase Event Elements
+  // Police Chase & Ambulance Emergency Event Elements
   private elBtnTriggerChase!: HTMLButtonElement;
   private elPoliceChaseBanner!: HTMLElement;
+  private elChaseBannerBox!: HTMLElement;
+  private elChaseIcon!: HTMLElement;
+  private elChaseBadgeTitle!: HTMLElement;
+  private elChaseBadgeBox!: HTMLElement;
   private elChaseBannerMsg!: HTMLElement;
   private elBtnCloseChase!: HTMLButtonElement;
 
@@ -114,9 +118,13 @@ class SaigonShipperApp {
     this.elBlinkerRight = document.getElementById('hud-blinker-right')!;
     this.elBtnHorn = document.getElementById('hud-btn-horn') as HTMLButtonElement;
 
-    // Police chase pursuit event elements
+    // Police chase & ambulance pursuit event elements
     this.elBtnTriggerChase = document.getElementById('btn-trigger-chase') as HTMLButtonElement;
     this.elPoliceChaseBanner = document.getElementById('police-chase-banner')!;
+    this.elChaseBannerBox = document.getElementById('chase-banner-box')!;
+    this.elChaseIcon = document.getElementById('chase-icon')!;
+    this.elChaseBadgeTitle = document.getElementById('chase-badge-title')!;
+    this.elChaseBadgeBox = document.getElementById('chase-badge-box')!;
     this.elChaseBannerMsg = document.getElementById('chase-banner-msg')!;
     this.elBtnCloseChase = document.getElementById('btn-close-chase') as HTMLButtonElement;
 
@@ -156,12 +164,22 @@ class SaigonShipperApp {
       this.policeChaseSystem.update(dt, playerPos);
     });
 
-    // Wire Police Chase event telemetry to Alert Banner
+    // Wire Police Chase & Ambulance event telemetry to Alert Banner
     this.policeChaseSystem.setStatusCallback((status) => {
       if (status.isActive) {
         this.elPoliceChaseBanner.style.display = 'block';
         this.elChaseBannerMsg.textContent = status.message;
+        this.elChaseIcon.textContent = status.icon;
+        this.elChaseBadgeTitle.textContent = status.badge;
         this.elBtnTriggerChase.classList.add('active-chase');
+
+        if (status.eventType === 'ambulance_rush') {
+          this.elChaseBannerBox.classList.add('ambulance-mode');
+          this.elChaseBadgeBox.classList.add('ambulance-badge');
+        } else {
+          this.elChaseBannerBox.classList.remove('ambulance-mode');
+          this.elChaseBadgeBox.classList.remove('ambulance-badge');
+        }
       } else {
         this.elPoliceChaseBanner.style.display = 'none';
         this.elBtnTriggerChase.classList.remove('active-chase');
@@ -328,35 +346,23 @@ class SaigonShipperApp {
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }));
     });
 
-    // Trigger / Toggle Police Chase Pursuit Event
+    // Trigger / Toggle Emergency Events Manually (events also occur automatically and spontaneously!)
     this.elBtnTriggerChase.addEventListener('click', () => {
       AudioManager.getInstance().ensureResumed();
+      const playerPos = this.shipperController.getIsActive() ? this.shipperController.getPosition() : undefined;
+      this.policeChaseSystem.toggleManualEvent(playerPos);
       if (this.policeChaseSystem.getIsActive()) {
-        this.policeChaseSystem.stopChaseEvent();
-        this.appendTelemetryLog(`[Cảnh sát CSGT] Đã dừng sự kiện truy bắt cướp.`, 'info');
+        const typeStr = this.policeChaseSystem.getCurrentEventType() === 'ambulance_rush' ? 'Xe Cứu Thương 115' : 'Cảnh sát CSGT';
+        this.appendTelemetryLog(`[Sự kiện Khẩn cấp] 🚨 Đã kích hoạt sự kiện ${typeStr}!`, 'warn');
       } else {
-        const playerPos = this.shipperController.getIsActive() ? this.shipperController.getPosition() : undefined;
-        this.policeChaseSystem.startChaseEvent(playerPos);
-        this.appendTelemetryLog(`[Cảnh sát CSGT] 🚨 Bắt đầu sự kiện truy đuổi đối tượng cướp giật phóng bạt mạng!`, 'warn');
+        this.appendTelemetryLog(`[Sự kiện Khẩn cấp] Đã dừng sự kiện khẩn cấp.`, 'info');
       }
     });
 
     this.elBtnCloseChase.addEventListener('click', () => {
-      this.policeChaseSystem.stopChaseEvent();
-      this.appendTelemetryLog(`[Cảnh sát CSGT] Đã đóng sự kiện truy bắt.`, 'info');
+      this.policeChaseSystem.stopEmergencyEvent();
+      this.appendTelemetryLog(`[Sự kiện Khẩn cấp] Đã đóng sự kiện.`, 'info');
     });
-
-    // Periodic spontaneous Police Chase event (occurs every 75 seconds if not already running)
-    setInterval(() => {
-      if (!this.policeChaseSystem.getIsActive() && Math.random() < 0.65) {
-        const playerPos = this.shipperController.getIsActive() ? this.shipperController.getPosition() : undefined;
-        this.policeChaseSystem.startChaseEvent(playerPos);
-        this.appendTelemetryLog(
-          `[Sự kiện Đô thị] 🚨 Cảnh sát phát hiện cướp giật trên phố và đang mở cuộc truy đuổi tốc độ cao!`,
-          'warn'
-        );
-      }
-    }, 75000);
 
     // Keyboard Shortcuts for Sidebar & Game Events
     window.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -702,7 +708,7 @@ class SaigonShipperApp {
       this.sceneManager.scene.add(this.trafficSignalSystem.group);
 
       // 5G. Autonomous Moving Traffic Simulation Obeying Lanes & Signals (3,000 xe)
-      this.cityTraffic.initSimulation(fusionResult.roadGraph);
+      this.cityTraffic.initSimulation(fusionResult.roadGraph, this.trafficSignalSystem);
       this.sceneManager.scene.add(this.cityTraffic.group);
 
       // 5H. Crowded Vietnamese Pedestrians on Sidewalks (650+ Người dân đi bộ đội nón lá)
@@ -718,7 +724,7 @@ class SaigonShipperApp {
 
       const totalTime = (performance.now() - startTime) / 1000;
       this.appendTelemetryLog(
-        `[Đô thị Sài Gòn 3D] ~4.8 km² • ${fusionResult.buildings.length} tòa nhà • ${treePositions.length} cây xanh • 3.000 xe tuân thủ đèn tín hiệu • 650+ người dân đi bộ trên vỉa hè • Sẵn sàng sự kiện Cảnh sát truy bắt cướp giật (Phím P hoặc nút Bắt cướp) • Dựng xong trong ${totalTime.toFixed(1)}s`,
+        `[Đô thị Sài Gòn 3D] ~4.8 km² • ${fusionResult.buildings.length} tòa nhà • ${treePositions.length} cây xanh • 3.000 xe tuân thủ đèn tín hiệu • 650+ người dân đi bộ trên vỉa hè • Hệ thống sự kiện Đô thị tự động (Cảnh sát bắt cướp & Cứu thương 115 ngẫu nhiên xuất hiện trên đường) • Dựng xong trong ${totalTime.toFixed(1)}s`,
         'success'
       );
 

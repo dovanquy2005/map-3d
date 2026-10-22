@@ -430,4 +430,128 @@ export class AudioManager {
   public getIsMuted(): boolean {
     return this.isMuted;
   }
+
+  // =========================================================================
+  // POLICE PURSUIT SIREN SYNTHESIZER
+  // =========================================================================
+  private sirenGain: GainNode | null = null;
+  private sirenOsc: OscillatorNode | null = null;
+  private sirenLfo: OscillatorNode | null = null;
+  private isSirenActive: boolean = false;
+
+  /**
+   * Starts wailing police siren ("ú o ú o...")
+   */
+  public startPoliceSiren(initialDistMeters: number = 25): void {
+    this.ensureResumed();
+    const ctx = this.initContext();
+    if (!ctx || !this.masterGain || this.isSirenActive) return;
+
+    try {
+      this.isSirenActive = true;
+      const t = ctx.currentTime;
+
+      this.sirenGain = ctx.createGain();
+      const initialVol = Math.max(0.05, Math.min(0.7, (1.0 - initialDistMeters / 220.0) * 0.7));
+      this.sirenGain.gain.setValueAtTime(0.01, t);
+      this.sirenGain.gain.linearRampToValueAtTime(this.isMuted ? 0 : initialVol, t + 0.25);
+
+      // Authentic Vietnamese/European police wail: 640 Hz to 980 Hz periodic modulation
+      this.sirenOsc = ctx.createOscillator();
+      this.sirenOsc.type = 'sawtooth';
+
+      // Pitch LFO for wailing siren
+      this.sirenLfo = ctx.createOscillator();
+      this.sirenLfo.type = 'sine';
+      this.sirenLfo.frequency.setValueAtTime(0.85, t); // 0.85 Hz wail cycle (~1.18s per full cycle)
+
+      const lfoGain = ctx.createGain();
+      lfoGain.gain.setValueAtTime(175, t); // swing +/- 175 Hz around 800 Hz (625Hz -> 975Hz)
+
+      this.sirenOsc.frequency.setValueAtTime(800, t);
+      this.sirenLfo.connect(lfoGain);
+      lfoGain.connect(this.sirenOsc.frequency);
+
+      // Bandpass filter to shape metallic emergency siren horn
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(820, t);
+      filter.Q.setValueAtTime(2.6, t);
+
+      this.sirenOsc.connect(filter);
+      filter.connect(this.sirenGain);
+      this.sirenGain.connect(this.masterGain);
+
+      this.sirenLfo.start(t);
+      this.sirenOsc.start(t);
+    } catch {}
+  }
+
+  /**
+   * Updates police siren volume dynamically based on distance to player/camera
+   */
+  public updatePoliceSirenDistance(distMeters: number): void {
+    if (!this.isSirenActive || !this.ctx || !this.sirenGain) return;
+    const vol = Math.max(0.02, Math.min(0.7, (1.0 - Math.min(1.0, distMeters / 250.0)) * 0.7));
+    this.sirenGain.gain.setTargetAtTime(this.isMuted ? 0 : vol, this.ctx.currentTime, 0.1);
+  }
+
+  /**
+   * Stops police siren with a smooth fade
+   */
+  public stopPoliceSiren(): void {
+    if (!this.isSirenActive || !this.ctx) return;
+    this.isSirenActive = false;
+
+    if (this.sirenGain) {
+      this.sirenGain.gain.linearRampToValueAtTime(0.001, this.ctx.currentTime + 0.3);
+    }
+
+    setTimeout(() => {
+      try {
+        this.sirenOsc?.stop();
+        this.sirenLfo?.stop();
+        this.sirenOsc?.disconnect();
+        this.sirenLfo?.disconnect();
+      } catch {}
+      this.sirenOsc = null;
+      this.sirenLfo = null;
+      this.sirenGain = null;
+    }, 350);
+  }
+
+  /**
+   * Quick police siren chirp ("Woop-woop!")
+   */
+  public playPoliceChirp(): void {
+    this.ensureResumed();
+    const ctx = this.initContext();
+    if (!ctx || !this.masterGain || this.isMuted) return;
+
+    try {
+      const t = ctx.currentTime;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.01, t);
+      gain.gain.linearRampToValueAtTime(0.6, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(650, t);
+      osc.frequency.exponentialRampToValueAtTime(1150, t + 0.18);
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(900, t);
+      filter.Q.setValueAtTime(2.5, t);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(t);
+      osc.stop(t + 0.23);
+    } catch {}
+  }
 }
+

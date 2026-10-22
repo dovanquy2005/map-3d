@@ -610,3 +610,160 @@ html, body {
   background: rgba(239, 68, 68, 0.55);
 }
 
+/* Dynamic Police Chase Button */
+.btn-chase-event {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(37, 99, 235, 0.25));
+  border: 1.5px solid rgba(239, 68, 68, 0.6);
+  color: #ffffff;
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(239, 68, 68, 0.25), 0 0 12px rgba(37, 99, 235, 0.2);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-chase-event:hover {
+  transform: translateY(-1px) scale(1.02);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.45), rgba(37, 99, 235, 0.45));
+  border-color: #f87171;
+  box-shadow: 0 6px 24px rgba(239, 68, 68, 0.45), 0 0 20px rgba(59, 130, 246, 0.4);
+}
+
+.btn-chase-event:active {
+  transform: scale(0.98);
+}
+
+.btn-chase-event.active-chase {
+  border-color: #ef4444;
+  animation: policeBtnStrobe 1s infinite alternate;
+}
+
+@keyframes policeBtnStrobe {
+  0% {
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.8), 0 0 8px rgba(59, 130, 246, 0.2);
+  }
+  100% {
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.2), 0 0 20px rgba(59, 130, 246, 0.8);
+  }
+}
+
+/* Police Chase Emergency Top Banner */
+.chase-banner-overlay {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  pointer-events: auto;
+  animation: bannerSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes bannerSlideIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -24px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+}
+
+.chase-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 40px;
+  border: 1.5px solid rgba(239, 68, 68, 0.8);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 25px rgba(239, 68, 68, 0.5), inset 0 0 15px rgba(37, 99, 235, 0.2);
+  animation: policeBorderGlow 1.2s infinite alternate ease-in-out;
+}
+
+@keyframes policeBorderGlow {
+  0% {
+    border-color: rgba(239, 68, 68, 0.9);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 25px rgba(239, 68, 68, 0.6);
+  }
+  100% {
+    border-color: rgba(59, 130, 246, 0.9);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7), 0 0 25px rgba(59, 130, 246, 0.6);
+  }
+}
+
+.chase-siren-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(239, 68, 68, 0.2);
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.siren-pulse-red {
+  font-size: 1.05rem;
+  animation: sirenShake 0.6s infinite ease-in-out;
+}
+
+@keyframes sirenShake {
+  0%, 100% { transform: rotate(-8deg) scale(1); }
+  50% { transform: rotate(8deg) scale(1.15); }
+}
+
+.chase-badge-text {
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #fca5a5;
+  text-transform: uppercase;
+}
+
+.chase-banner-text {
+  font-family: var(--font-sans);
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #f8fafc;
+  max-width: 520px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-chase-dismiss {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #94a3b8;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: bold;
+  transition: all 0.15s ease;
+}
+
+.btn-chase-dismiss:hover {
+  background: rgba(239, 68, 68, 0.6);
+  color: #ffffff;
+}
+
+

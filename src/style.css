@@ -74,6 +74,40 @@ html, body {
   padding: 16px;
   overflow-y: auto;
   overflow-x: hidden;
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease, visibility 0.35s;
+}
+
+#hud-sidebar.collapsed {
+  transform: translateX(calc(-100% - 30px));
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.btn-icon-hud {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-glass);
+  color: #e2e8f0;
+  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition: all 0.2s ease;
+}
+
+.btn-icon-hud:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-icon-hud:active {
+  transform: translateY(0);
 }
 
 #hud-sidebar::-webkit-scrollbar {
@@ -462,3 +496,117 @@ html, body {
   70% { transform: translateX(-2px); }
   100% { transform: translateX(0); }
 }
+
+/* Floating Sidebar Re-Open Tab */
+.floating-sidebar-tab {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 12;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 30px;
+  background: rgba(15, 23, 42, 0.9);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1.5px solid rgba(6, 182, 212, 0.5);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 18px rgba(6, 182, 212, 0.35);
+  color: #f8fafc;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: floatPulse 2.5s infinite ease-in-out;
+}
+
+.floating-sidebar-tab.visible {
+  display: flex;
+}
+
+.floating-sidebar-tab:hover {
+  transform: scale(1.06);
+  background: rgba(30, 41, 59, 0.98);
+  border-color: #38bdf8;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.7), 0 0 25px rgba(6, 182, 212, 0.5);
+}
+
+.floating-sidebar-tab .tab-arrow {
+  color: #38bdf8;
+  font-size: 0.85rem;
+}
+
+@keyframes floatPulse {
+  0%, 100% {
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 15px rgba(6, 182, 212, 0.25);
+  }
+  50% {
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), 0 0 24px rgba(6, 182, 212, 0.5);
+  }
+}
+
+/* Real-time Turn Signals (Xi-Nhan) HUD */
+.turn-signals-hud {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  pointer-events: auto;
+}
+
+.signal-badge {
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--border-glass);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #64748b;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition: all 0.15s ease;
+}
+
+.signal-badge .signal-arrow {
+  font-size: 0.85rem;
+}
+
+.signal-badge.blinking-on {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: #f59e0b;
+  color: #fbbf24;
+  box-shadow: 0 0 18px rgba(245, 158, 11, 0.6);
+  transform: scale(1.08);
+}
+
+.horn-btn-hud {
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  color: #fca5a5;
+  font-family: var(--font-sans);
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition: all 0.15s ease;
+}
+
+.horn-btn-hud:hover {
+  background: rgba(239, 68, 68, 0.38);
+  border-color: #ef4444;
+  color: #ffffff;
+  transform: scale(1.06);
+}
+
+.horn-btn-hud:active {
+  transform: scale(0.95);
+  background: rgba(239, 68, 68, 0.55);
+}
+

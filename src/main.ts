@@ -13,6 +13,7 @@ import { ShipperController } from './world/ShipperController';
 import { CityVegetation } from './world/CityVegetation';
 import { CityTraffic } from './world/CityTraffic';
 import { TrafficSignalSystem } from './world/TrafficSignalSystem';
+import { AudioManager } from './services/AudioManager';
 
 class SaigonShipperApp {
   private sceneManager!: SceneManager;
@@ -31,6 +32,12 @@ class SaigonShipperApp {
   private targetMarkerLayer!: L.Marker;
 
   // UI Elements
+  private elSidebar!: HTMLElement;
+  private elBtnSidebarCollapse!: HTMLButtonElement;
+  private elBtnSidebarOpen!: HTMLButtonElement;
+  private elBtnSoundToggle!: HTMLButtonElement;
+  private elSoundIcon!: HTMLElement;
+
   private elAreaTitle!: HTMLElement;
   private elAreaCoords!: HTMLElement;
   private elBadgeCountry!: HTMLElement;
@@ -50,8 +57,12 @@ class SaigonShipperApp {
   private elSpeedValue!: HTMLElement;
   private elStreetName!: HTMLElement;
   private elSpeedometerCard!: HTMLElement;
+  private elBlinkerLeft!: HTMLElement;
+  private elBlinkerRight!: HTMLElement;
+  private elBtnHorn!: HTMLButtonElement;
 
   private isBuilding = false;
+
 
   constructor() {
     this.initDOM();
@@ -65,6 +76,12 @@ class SaigonShipperApp {
   }
 
   private initDOM(): void {
+    this.elSidebar = document.getElementById('hud-sidebar')!;
+    this.elBtnSidebarCollapse = document.getElementById('btn-sidebar-collapse') as HTMLButtonElement;
+    this.elBtnSidebarOpen = document.getElementById('btn-sidebar-open') as HTMLButtonElement;
+    this.elBtnSoundToggle = document.getElementById('btn-sound-toggle') as HTMLButtonElement;
+    this.elSoundIcon = document.getElementById('sound-icon')!;
+
     this.elAreaTitle = document.getElementById('area-title')!;
     this.elAreaCoords = document.getElementById('area-coords')!;
     this.elBadgeCountry = document.getElementById('badge-country')!;
@@ -83,6 +100,13 @@ class SaigonShipperApp {
     this.elSpeedValue = document.getElementById('hud-speed-value')!;
     this.elStreetName = document.getElementById('hud-street-name')!;
     this.elSpeedometerCard = document.getElementById('hud-speedometer-card')!;
+    this.elBlinkerLeft = document.getElementById('hud-blinker-left')!;
+    this.elBlinkerRight = document.getElementById('hud-blinker-right')!;
+    this.elBtnHorn = document.getElementById('hud-btn-horn') as HTMLButtonElement;
+
+    // Initialize audio icon state
+    const isMuted = AudioManager.getInstance().getIsMuted();
+    this.elSoundIcon.textContent = isMuted ? '🔇' : '🔊';
 
     this.updateBBox();
   }
@@ -116,6 +140,19 @@ class SaigonShipperApp {
         this.elSpeedometerCard.classList.add('collision-warning');
       } else {
         this.elSpeedometerCard.classList.remove('collision-warning');
+      }
+
+      // Synchronize Realtime Turn Signal (Xi-Nhan) HUD Badges
+      if (status.blinkerState === 'left' && status.isBlinkerPhaseOn) {
+        this.elBlinkerLeft.classList.add('blinking-on');
+      } else {
+        this.elBlinkerLeft.classList.remove('blinking-on');
+      }
+
+      if (status.blinkerState === 'right' && status.isBlinkerPhaseOn) {
+        this.elBlinkerRight.classList.add('blinking-on');
+      } else {
+        this.elBlinkerRight.classList.remove('blinking-on');
       }
     });
   }
@@ -206,7 +243,64 @@ class SaigonShipperApp {
     this.appendTelemetryLog(`[Tọa độ] Đã chọn tâm mới: ${lat.toFixed(4)}, ${lon.toFixed(4)}`, 'info');
   }
 
+  private toggleSidebar(force?: boolean): void {
+    const isCurrentlyCollapsed = this.elSidebar.classList.contains('collapsed');
+    const shouldCollapse = force !== undefined ? force : !isCurrentlyCollapsed;
+
+    if (shouldCollapse) {
+      this.elSidebar.classList.add('collapsed');
+      this.elBtnSidebarOpen.classList.add('visible');
+    } else {
+      this.elSidebar.classList.remove('collapsed');
+      this.elBtnSidebarOpen.classList.remove('visible');
+      setTimeout(() => this.leafletMap?.invalidateSize(), 360);
+    }
+  }
+
   private bindEvents(): void {
+    // Sidebar collapse & open triggers
+    this.elBtnSidebarCollapse.addEventListener('click', () => {
+      this.toggleSidebar(true);
+    });
+
+    this.elBtnSidebarOpen.addEventListener('click', () => {
+      this.toggleSidebar(false);
+    });
+
+    // Master Sound Mute/Unmute Toggle
+    this.elBtnSoundToggle.addEventListener('click', () => {
+      const isMuted = AudioManager.getInstance().toggleMute();
+      this.elSoundIcon.textContent = isMuted ? '🔇' : '🔊';
+      this.elBtnSoundToggle.title = isMuted ? 'Bật âm thanh xe cộ & phố xá' : 'Tắt âm thanh';
+      this.appendTelemetryLog(
+        `[Âm thanh] ${isMuted ? 'Đã tắt tiếng xe cộ & phố xá' : 'Đã bật âm thanh xe cộ & phố xá'}`,
+        'info'
+      );
+    });
+
+    // Shipper Horn Button
+    this.elBtnHorn.addEventListener('click', () => {
+      AudioManager.getInstance().playHorn();
+    });
+
+    // Clickable Turn Signal Badges (triggers Q or E on keyboard)
+    this.elBlinkerLeft.addEventListener('click', () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' }));
+    });
+    this.elBlinkerRight.addEventListener('click', () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }));
+    });
+
+    // Keyboard Shortcuts for Sidebar
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.code === 'Tab') {
+        e.preventDefault();
+        this.toggleSidebar();
+      } else if (e.code === 'KeyH' && !this.shipperController.getIsActive()) {
+        this.toggleSidebar();
+      }
+    });
+
     // Build Area CTA Button
     this.elBtnBuild.addEventListener('click', () => {
       if (!this.isBuilding) {
@@ -238,6 +332,8 @@ class SaigonShipperApp {
   }
 
   private switchMode(mode: 'orbit' | 'shipper'): void {
+    AudioManager.getInstance().ensureResumed();
+
     if (mode === 'orbit') {
       this.sceneManager.setCameraMode('orbit');
       this.shipperController.setActive(false);
@@ -251,7 +347,7 @@ class SaigonShipperApp {
       this.elBtnModeShipper.classList.add('active');
       this.elBtnModeOrbit.classList.remove('active');
       this.elShipperHud.style.display = 'flex';
-      this.appendTelemetryLog(`[Chế độ] Đã bật Chế độ Shipper! Dùng WASD hoặc Mũi tên để lái xe`, 'success');
+      this.appendTelemetryLog(`[Chế độ] Đã nổ máy xe máy Shipper! Dùng W/S (Ga/Lùi), A/D (Lái), Q/E (Sin nhan), H (Còi)`, 'success');
     }
   }
 

@@ -38,6 +38,9 @@ interface SimulatedVehicle {
   // Spatial outputs
   currentPos: THREE.Vector3;
   heading: number;      // yaw rotation in radians (smoothed via lerpAngle)
+
+  // Turn signal state (Xi-nhan)
+  turnSignal: 'none' | 'left' | 'right';
 }
 
 /**
@@ -67,17 +70,27 @@ export class CityTraffic {
   // Synchronized Instanced Meshes (Body + Details per vehicle class sharing instanceMatrix)
   private instancedCarsBody: THREE.InstancedMesh | null = null;
   private instancedCarsDetails: THREE.InstancedMesh | null = null;
+  private instancedCarsBlinkersLeft: THREE.InstancedMesh | null = null;
+  private instancedCarsBlinkersRight: THREE.InstancedMesh | null = null;
 
   private instancedScootersBody: THREE.InstancedMesh | null = null;
   private instancedScootersDetails: THREE.InstancedMesh | null = null;
+  private instancedScootersBlinkersLeft: THREE.InstancedMesh | null = null;
+  private instancedScootersBlinkersRight: THREE.InstancedMesh | null = null;
 
   private instancedShippersBody: THREE.InstancedMesh | null = null;
   private instancedShippersDetails: THREE.InstancedMesh | null = null;
+  private instancedShippersBlinkersLeft: THREE.InstancedMesh | null = null;
+  private instancedShippersBlinkersRight: THREE.InstancedMesh | null = null;
 
   private instancedBusesBody: THREE.InstancedMesh | null = null;
   private instancedBusesDetails: THREE.InstancedMesh | null = null;
+  private instancedBusesBlinkersLeft: THREE.InstancedMesh | null = null;
+  private instancedBusesBlinkersRight: THREE.InstancedMesh | null = null;
 
   private dummy: THREE.Object3D = new THREE.Object3D();
+  private zeroMatrix: THREE.Matrix4 = new THREE.Matrix4().makeScale(0, 0, 0);
+  private blinkTimer: number = 0;
 
   constructor() {
     this.group = new THREE.Group();
@@ -141,6 +154,12 @@ export class CityTraffic {
     const commuterPack = VehicleModels.createScooterModel(false);
     const shipperPack = VehicleModels.createScooterModel(true);
     const busPack = VehicleModels.createBusModel();
+
+    // Amber turn signal geometries and material
+    const carBlinkers = VehicleModels.createCarBlinkersGeo();
+    const scooterBlinkers = VehicleModels.createScooterBlinkersGeo();
+    const busBlinkers = VehicleModels.createBusBlinkersGeo();
+    const blinkerAmberMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
 
     // High-end clearcoat automotive materials
     const carBodyMat = new THREE.MeshStandardMaterial({ roughness: 0.28, metalness: 0.6 });
@@ -217,6 +236,13 @@ export class CityTraffic {
     this.instancedCarsDetails.castShadow = false;
     this.instancedCarsDetails.receiveShadow = true;
 
+    this.instancedCarsBlinkersLeft = new THREE.InstancedMesh(carBlinkers.leftGeo, blinkerAmberMat, totalCars);
+    this.instancedCarsBlinkersRight = new THREE.InstancedMesh(carBlinkers.rightGeo, blinkerAmberMat, totalCars);
+    for (let i = 0; i < totalCars; i++) {
+      this.instancedCarsBlinkersLeft.setMatrixAt(i, this.zeroMatrix);
+      this.instancedCarsBlinkersRight.setMatrixAt(i, this.zeroMatrix);
+    }
+
     // B. Commuter Scooters Instanced Meshes
     this.instancedScootersBody = new THREE.InstancedMesh(commuterPack.body, scooterBodyMat, totalScooters);
     this.instancedScootersDetails = new THREE.InstancedMesh(commuterPack.details, scooterDetailsMat, totalScooters);
@@ -225,6 +251,13 @@ export class CityTraffic {
     this.instancedScootersBody.receiveShadow = true;
     this.instancedScootersDetails.castShadow = false;
     this.instancedScootersDetails.receiveShadow = true;
+
+    this.instancedScootersBlinkersLeft = new THREE.InstancedMesh(scooterBlinkers.leftGeo, blinkerAmberMat, totalScooters);
+    this.instancedScootersBlinkersRight = new THREE.InstancedMesh(scooterBlinkers.rightGeo, blinkerAmberMat, totalScooters);
+    for (let i = 0; i < totalScooters; i++) {
+      this.instancedScootersBlinkersLeft.setMatrixAt(i, this.zeroMatrix);
+      this.instancedScootersBlinkersRight.setMatrixAt(i, this.zeroMatrix);
+    }
 
     // C. Delivery Shippers Instanced Meshes
     this.instancedShippersBody = new THREE.InstancedMesh(shipperPack.body, shipperBodyMat, totalShippers);
@@ -235,6 +268,13 @@ export class CityTraffic {
     this.instancedShippersDetails.castShadow = false;
     this.instancedShippersDetails.receiveShadow = true;
 
+    this.instancedShippersBlinkersLeft = new THREE.InstancedMesh(scooterBlinkers.leftGeo, blinkerAmberMat, totalShippers);
+    this.instancedShippersBlinkersRight = new THREE.InstancedMesh(scooterBlinkers.rightGeo, blinkerAmberMat, totalShippers);
+    for (let i = 0; i < totalShippers; i++) {
+      this.instancedShippersBlinkersLeft.setMatrixAt(i, this.zeroMatrix);
+      this.instancedShippersBlinkersRight.setMatrixAt(i, this.zeroMatrix);
+    }
+
     // D. City Buses Instanced Meshes
     this.instancedBusesBody = new THREE.InstancedMesh(busPack.body, busBodyMat, totalBuses);
     this.instancedBusesDetails = new THREE.InstancedMesh(busPack.details, busDetailsMat, totalBuses);
@@ -243,6 +283,14 @@ export class CityTraffic {
     this.instancedBusesBody.receiveShadow = true;
     this.instancedBusesDetails.castShadow = false;
     this.instancedBusesDetails.receiveShadow = true;
+
+    this.instancedBusesBlinkersLeft = new THREE.InstancedMesh(busBlinkers.leftGeo, blinkerAmberMat, totalBuses);
+    this.instancedBusesBlinkersRight = new THREE.InstancedMesh(busBlinkers.rightGeo, blinkerAmberMat, totalBuses);
+    for (let i = 0; i < totalBuses; i++) {
+      this.instancedBusesBlinkersLeft.setMatrixAt(i, this.zeroMatrix);
+      this.instancedBusesBlinkersRight.setMatrixAt(i, this.zeroMatrix);
+    }
+
 
     // 1. Spawn 500 Sedans / Taxis / Crossovers
     for (let i = 0; i < totalCars; i++) {
@@ -285,6 +333,7 @@ export class CityTraffic {
           from.z + (to.z - from.z) * (initialDist / dist) + perpZ * laneOffset
         ),
         heading,
+        turnSignal: 'none',
       };
       this.simulatedCars.push(agent);
       this.instancedCarsBody.setColorAt(i, carColors[i % carColors.length]);
@@ -331,6 +380,7 @@ export class CityTraffic {
           from.z + (to.z - from.z) * (initialDist / dist) + perpZ * laneOffset
         ),
         heading,
+        turnSignal: 'none',
       };
       this.simulatedScooters.push(agent);
       this.instancedScootersBody.setColorAt(i, commuterColors[i % commuterColors.length]);
@@ -377,6 +427,7 @@ export class CityTraffic {
           from.z + (to.z - from.z) * (initialDist / dist) + perpZ * laneOffset
         ),
         heading,
+        turnSignal: 'none',
       };
       this.simulatedShippers.push(agent);
       this.instancedShippersBody.setColorAt(i, shipperColors[i % shipperColors.length]);
@@ -423,6 +474,7 @@ export class CityTraffic {
           from.z + (to.z - from.z) * (initialDist / dist) + perpZ * laneOffset
         ),
         heading,
+        turnSignal: 'none',
       };
       this.simulatedBuses.push(agent);
       this.instancedBusesBody.setColorAt(i, busColors[i % busColors.length]);
@@ -433,18 +485,26 @@ export class CityTraffic {
     if (this.instancedShippersBody.instanceColor) this.instancedShippersBody.instanceColor.needsUpdate = true;
     if (this.instancedBusesBody.instanceColor) this.instancedBusesBody.instanceColor.needsUpdate = true;
 
-    // Add 8 synchronized instanced meshes to group (Body + Details per class)
+    // Add synchronized instanced meshes to group (Body + Details + Amber Blinkers per class)
     this.group.add(this.instancedCarsBody);
     this.group.add(this.instancedCarsDetails);
+    if (this.instancedCarsBlinkersLeft) this.group.add(this.instancedCarsBlinkersLeft);
+    if (this.instancedCarsBlinkersRight) this.group.add(this.instancedCarsBlinkersRight);
 
     this.group.add(this.instancedScootersBody);
     this.group.add(this.instancedScootersDetails);
+    if (this.instancedScootersBlinkersLeft) this.group.add(this.instancedScootersBlinkersLeft);
+    if (this.instancedScootersBlinkersRight) this.group.add(this.instancedScootersBlinkersRight);
 
     this.group.add(this.instancedShippersBody);
     this.group.add(this.instancedShippersDetails);
+    if (this.instancedShippersBlinkersLeft) this.group.add(this.instancedShippersBlinkersLeft);
+    if (this.instancedShippersBlinkersRight) this.group.add(this.instancedShippersBlinkersRight);
 
     this.group.add(this.instancedBusesBody);
     this.group.add(this.instancedBusesDetails);
+    if (this.instancedBusesBlinkersLeft) this.group.add(this.instancedBusesBlinkersLeft);
+    if (this.instancedBusesBlinkersRight) this.group.add(this.instancedBusesBlinkersRight);
 
     // Initial update
     this.update(0.016);
@@ -457,6 +517,10 @@ export class CityTraffic {
     if (!this.roadGraph) return;
     const dt = Math.min(deltaTime, 0.08);
 
+    // Global blink cycle for vehicle turn signals (~2.4 Hz)
+    this.blinkTimer += dt;
+    const blinkOn = Math.sin(this.blinkTimer * 14.0) > 0;
+
     // 1. Update Cars
     if (this.instancedCarsBody && this.simulatedCars.length > 0) {
       for (let i = 0; i < this.simulatedCars.length; i++) {
@@ -467,8 +531,23 @@ export class CityTraffic {
         this.dummy.scale.set(1, 1, 1);
         this.dummy.updateMatrix();
         this.instancedCarsBody.setMatrixAt(i, this.dummy.matrix);
+
+        if (this.instancedCarsBlinkersLeft) {
+          this.instancedCarsBlinkersLeft.setMatrixAt(
+            i,
+            v.turnSignal === 'left' && blinkOn ? this.dummy.matrix : this.zeroMatrix
+          );
+        }
+        if (this.instancedCarsBlinkersRight) {
+          this.instancedCarsBlinkersRight.setMatrixAt(
+            i,
+            v.turnSignal === 'right' && blinkOn ? this.dummy.matrix : this.zeroMatrix
+          );
+        }
       }
       this.instancedCarsBody.instanceMatrix.needsUpdate = true;
+      if (this.instancedCarsBlinkersLeft) this.instancedCarsBlinkersLeft.instanceMatrix.needsUpdate = true;
+      if (this.instancedCarsBlinkersRight) this.instancedCarsBlinkersRight.instanceMatrix.needsUpdate = true;
     }
 
     // 2. Update Commuter Scooters
@@ -481,8 +560,23 @@ export class CityTraffic {
         this.dummy.scale.set(1, 1, 1);
         this.dummy.updateMatrix();
         this.instancedScootersBody.setMatrixAt(i, this.dummy.matrix);
+
+        if (this.instancedScootersBlinkersLeft) {
+          this.instancedScootersBlinkersLeft.setMatrixAt(
+            i,
+            v.turnSignal === 'left' && blinkOn ? this.dummy.matrix : this.zeroMatrix
+          );
+        }
+        if (this.instancedScootersBlinkersRight) {
+          this.instancedScootersBlinkersRight.setMatrixAt(
+            i,
+            v.turnSignal === 'right' && blinkOn ? this.dummy.matrix : this.zeroMatrix
+          );
+        }
       }
       this.instancedScootersBody.instanceMatrix.needsUpdate = true;
+      if (this.instancedScootersBlinkersLeft) this.instancedScootersBlinkersLeft.instanceMatrix.needsUpdate = true;
+      if (this.instancedScootersBlinkersRight) this.instancedScootersBlinkersRight.instanceMatrix.needsUpdate = true;
     }
 
     // 3. Update Delivery Shippers
@@ -495,8 +589,23 @@ export class CityTraffic {
         this.dummy.scale.set(1, 1, 1);
         this.dummy.updateMatrix();
         this.instancedShippersBody.setMatrixAt(i, this.dummy.matrix);
+
+        if (this.instancedShippersBlinkersLeft) {
+          this.instancedShippersBlinkersLeft.setMatrixAt(
+            i,
+            v.turnSignal === 'left' && blinkOn ? this.dummy.matrix : this.zeroMatrix
+          );
+        }
+        if (this.instancedShippersBlinkersRight) {
+          this.instancedShippersBlinkersRight.setMatrixAt(
+            i,
+            v.turnSignal === 'right' && blinkOn ? this.dummy.matrix : this.zeroMatrix
+          );
+        }
       }
       this.instancedShippersBody.instanceMatrix.needsUpdate = true;
+      if (this.instancedShippersBlinkersLeft) this.instancedShippersBlinkersLeft.instanceMatrix.needsUpdate = true;
+      if (this.instancedShippersBlinkersRight) this.instancedShippersBlinkersRight.instanceMatrix.needsUpdate = true;
     }
 
     // 4. Update Buses
@@ -509,8 +618,23 @@ export class CityTraffic {
         this.dummy.scale.set(1, 1, 1);
         this.dummy.updateMatrix();
         this.instancedBusesBody.setMatrixAt(i, this.dummy.matrix);
+
+        if (this.instancedBusesBlinkersLeft) {
+          this.instancedBusesBlinkersLeft.setMatrixAt(
+            i,
+            v.turnSignal === 'left' && blinkOn ? this.dummy.matrix : this.zeroMatrix
+          );
+        }
+        if (this.instancedBusesBlinkersRight) {
+          this.instancedBusesBlinkersRight.setMatrixAt(
+            i,
+            v.turnSignal === 'right' && blinkOn ? this.dummy.matrix : this.zeroMatrix
+          );
+        }
       }
       this.instancedBusesBody.instanceMatrix.needsUpdate = true;
+      if (this.instancedBusesBlinkersLeft) this.instancedBusesBlinkersLeft.instanceMatrix.needsUpdate = true;
+      if (this.instancedBusesBlinkersRight) this.instancedBusesBlinkersRight.instanceMatrix.needsUpdate = true;
     }
   }
 
@@ -581,6 +705,30 @@ export class CityTraffic {
       }
 
       v.edgeDistance += v.speed * dt;
+
+      // Advance Turn Signal detection: vehicles activate turn signal when within 24m of the turn
+      if (v.edgeDistance >= len1 - 24.0) {
+        const n3 = this.roadGraph.nodes.get(v.nextId);
+        if (n3 && v.nextId !== v.toId) {
+          const dx2 = n3.x - n2.x;
+          const dz2 = n3.z - n2.z;
+          const len2 = Math.hypot(dx2, dz2);
+          if (len2 >= 1.0) {
+            const dir2X = dx2 / len2;
+            const dir2Z = dz2 / len2;
+            const cross = dir1X * dir2Z - dir1Z * dir2X;
+            if (cross > 0.08) {
+              v.turnSignal = 'right';
+            } else if (cross < -0.08) {
+              v.turnSignal = 'left';
+            } else {
+              v.turnSignal = 'none';
+            }
+          }
+        }
+      } else {
+        v.turnSignal = 'none';
+      }
 
       // Do not initiate corner turn if stopped at red/yellow light
       if (isRedOrYellow && distToStop <= 1.5) {
@@ -700,6 +848,7 @@ export class CityTraffic {
       // Finished cornering transition
       if (v.turnProgress >= 1.0) {
         v.isTurning = false;
+        v.turnSignal = 'none';
         v.fromId = v.toId;
         v.toId = v.nextId;
         v.nextId = this.pickNextNode(v.toId, v.fromId);

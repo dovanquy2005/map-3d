@@ -6,6 +6,11 @@ export interface VehicleGeometryPack {
   details: THREE.BufferGeometry;
 }
 
+export interface VehicleBlinkersPack {
+  leftGeo: THREE.BufferGeometry;
+  rightGeo: THREE.BufferGeometry;
+}
+
 export interface PlayerMotorbikePack {
   bikeBody: THREE.Group;
   frontWheel: THREE.Group;
@@ -13,7 +18,11 @@ export interface PlayerMotorbikePack {
   steeringFork: THREE.Group;
   headlight: THREE.SpotLight;
   brakeLightMat: THREE.MeshStandardMaterial;
+  leftBlinkers: THREE.Mesh[];
+  rightBlinkers: THREE.Mesh[];
+  blinkerMat: THREE.MeshStandardMaterial;
 }
+
 
 /**
  * Assigns per-vertex color to a BufferGeometry for multi-element single-draw-call rendering
@@ -794,6 +803,56 @@ export class VehicleModels {
     headlight.target = headlightTarget;
     bikeBody.add(headlight);
 
+    // 7. AMBER TURN SIGNALS (XI-NHAN TRÁI / PHẢI)
+    const blinkerMat = new THREE.MeshStandardMaterial({
+      color: 0xffa500,
+      emissive: 0xff7700,
+      emissiveIntensity: 0.15,
+      roughness: 0.2,
+    });
+
+    const leftBlinkers: THREE.Mesh[] = [];
+    const rightBlinkers: THREE.Mesh[] = [];
+
+    // Front Fairing Blinkers
+    const fLeftBlinkerGeo = new THREE.BoxGeometry(0.08, 0.05, 0.05);
+    const fLeftBlinker = new THREE.Mesh(fLeftBlinkerGeo, blinkerMat);
+    fLeftBlinker.position.set(0.24, 0.78, 0.64);
+    bikeBody.add(fLeftBlinker);
+    leftBlinkers.push(fLeftBlinker);
+
+    const fRightBlinkerGeo = new THREE.BoxGeometry(0.08, 0.05, 0.05);
+    const fRightBlinker = new THREE.Mesh(fRightBlinkerGeo, blinkerMat);
+    fRightBlinker.position.set(-0.24, 0.78, 0.64);
+    bikeBody.add(fRightBlinker);
+    rightBlinkers.push(fRightBlinker);
+
+    // Rear Tail Blinkers
+    const rLeftBlinkerGeo = new THREE.BoxGeometry(0.08, 0.06, 0.05);
+    const rLeftBlinker = new THREE.Mesh(rLeftBlinkerGeo, blinkerMat);
+    rLeftBlinker.position.set(0.18, 0.64, -0.82);
+    bikeBody.add(rLeftBlinker);
+    leftBlinkers.push(rLeftBlinker);
+
+    const rRightBlinkerGeo = new THREE.BoxGeometry(0.08, 0.06, 0.05);
+    const rRightBlinker = new THREE.Mesh(rRightBlinkerGeo, blinkerMat);
+    rRightBlinker.position.set(-0.18, 0.64, -0.82);
+    bikeBody.add(rRightBlinker);
+    rightBlinkers.push(rRightBlinker);
+
+    // Handlebar Wing Tip Blinkers
+    const hLeftBlinkerGeo = new THREE.BoxGeometry(0.04, 0.04, 0.05);
+    const hLeftBlinker = new THREE.Mesh(hLeftBlinkerGeo, blinkerMat);
+    hLeftBlinker.position.set(0.36, 1.05, -0.16);
+    steeringFork.add(hLeftBlinker);
+    leftBlinkers.push(hLeftBlinker);
+
+    const hRightBlinkerGeo = new THREE.BoxGeometry(0.04, 0.04, 0.05);
+    const hRightBlinker = new THREE.Mesh(hRightBlinkerGeo, blinkerMat);
+    hRightBlinker.position.set(-0.36, 1.05, -0.16);
+    steeringFork.add(hRightBlinker);
+    rightBlinkers.push(hRightBlinker);
+
     return {
       bikeBody,
       frontWheel,
@@ -801,7 +860,120 @@ export class VehicleModels {
       steeringFork,
       headlight,
       brakeLightMat,
+      leftBlinkers,
+      rightBlinkers,
+      blinkerMat,
+    };
+  }
+
+  // =========================================================================
+  // 5. BLINKER GEOMETRIES FOR AI SIMULATED TRAFFIC VEHICLES
+  // =========================================================================
+  /**
+   * Generates left and right amber blinkers for sedans/crossovers
+   */
+  public static createCarBlinkersGeo(): VehicleBlinkersPack {
+    // Left blinkers: front-left + rear-left + side mirror
+    const leftParts: THREE.BufferGeometry[] = [];
+    const fLeft = new THREE.BoxGeometry(0.14, 0.09, 0.08);
+    fLeft.translate(0.80, 0.52, 2.14);
+    leftParts.push(fLeft);
+
+    const rLeft = new THREE.BoxGeometry(0.14, 0.09, 0.08);
+    rLeft.translate(0.80, 0.60, -2.14);
+    leftParts.push(rLeft);
+
+    const mLeft = new THREE.BoxGeometry(0.06, 0.06, 0.12);
+    mLeft.translate(0.92, 0.84, 0.60);
+    leftParts.push(mLeft);
+
+    // Right blinkers: front-right + rear-right + side mirror
+    const rightParts: THREE.BufferGeometry[] = [];
+    const fRight = new THREE.BoxGeometry(0.14, 0.09, 0.08);
+    fRight.translate(-0.80, 0.52, 2.14);
+    rightParts.push(fRight);
+
+    const rRight = new THREE.BoxGeometry(0.14, 0.09, 0.08);
+    rRight.translate(-0.80, 0.60, -2.14);
+    rightParts.push(rRight);
+
+    const mRight = new THREE.BoxGeometry(0.06, 0.06, 0.12);
+    mRight.translate(-0.92, 0.84, 0.60);
+    rightParts.push(mRight);
+
+    return {
+      leftGeo: BufferGeometryUtils.mergeGeometries(leftParts) || fLeft,
+      rightGeo: BufferGeometryUtils.mergeGeometries(rightParts) || fRight,
+    };
+  }
+
+  /**
+   * Generates left and right amber blinkers for scooters & shippers
+   */
+  public static createScooterBlinkersGeo(): VehicleBlinkersPack {
+    // Left blinkers: front-left fairing + rear-left tail
+    const leftParts: THREE.BufferGeometry[] = [];
+    const fLeft = new THREE.BoxGeometry(0.07, 0.06, 0.06);
+    fLeft.translate(0.22, 0.86, 0.46);
+    leftParts.push(fLeft);
+
+    const rLeft = new THREE.BoxGeometry(0.07, 0.06, 0.06);
+    rLeft.translate(0.16, 0.58, -0.74);
+    leftParts.push(rLeft);
+
+    // Right blinkers
+    const rightParts: THREE.BufferGeometry[] = [];
+    const fRight = new THREE.BoxGeometry(0.07, 0.06, 0.06);
+    fRight.translate(-0.22, 0.86, 0.46);
+    rightParts.push(fRight);
+
+    const rRight = new THREE.BoxGeometry(0.07, 0.06, 0.06);
+    rRight.translate(-0.16, 0.58, -0.74);
+    rightParts.push(rRight);
+
+    return {
+      leftGeo: BufferGeometryUtils.mergeGeometries(leftParts) || fLeft,
+      rightGeo: BufferGeometryUtils.mergeGeometries(rightParts) || fRight,
+    };
+  }
+
+  /**
+   * Generates left and right amber blinkers for buses
+   */
+  public static createBusBlinkersGeo(): VehicleBlinkersPack {
+    // Left bus blinkers
+    const leftParts: THREE.BufferGeometry[] = [];
+    const fLeft = new THREE.BoxGeometry(0.18, 0.14, 0.12);
+    fLeft.translate(1.22, 0.72, 4.66);
+    leftParts.push(fLeft);
+
+    const rLeft = new THREE.BoxGeometry(0.18, 0.14, 0.12);
+    rLeft.translate(1.22, 0.72, -4.66);
+    leftParts.push(rLeft);
+
+    const mLeft = new THREE.BoxGeometry(0.08, 0.10, 0.20);
+    mLeft.translate(1.25, 1.25, 0.0);
+    leftParts.push(mLeft);
+
+    // Right bus blinkers
+    const rightParts: THREE.BufferGeometry[] = [];
+    const fRight = new THREE.BoxGeometry(0.18, 0.14, 0.12);
+    fRight.translate(-1.22, 0.72, 4.66);
+    rightParts.push(fRight);
+
+    const rRight = new THREE.BoxGeometry(0.18, 0.14, 0.12);
+    rRight.translate(-1.22, 0.72, -4.66);
+    rightParts.push(rRight);
+
+    const mRight = new THREE.BoxGeometry(0.08, 0.10, 0.20);
+    mRight.translate(-1.25, 1.25, 0.0);
+    rightParts.push(mRight);
+
+    return {
+      leftGeo: BufferGeometryUtils.mergeGeometries(leftParts) || fLeft,
+      rightGeo: BufferGeometryUtils.mergeGeometries(rightParts) || fRight,
     };
   }
 }
+
 

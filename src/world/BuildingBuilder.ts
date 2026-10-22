@@ -10,6 +10,53 @@ export interface BuiltCityResult {
   totalBuildings: number;
 }
 
+function computeSignedArea(ring: MetricPoint[]): number {
+  let area = 0;
+  const n = ring.length;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    area += ring[i].x * ring[j].z - ring[j].x * ring[i].z;
+  }
+  return area * 0.5;
+}
+
+/**
+ * Light orthogonalization: removes redundant raster-staircase vertices (< 5 deg deflection)
+ * from AI-extracted satellite footprints (source === 'vida'), leaving clean straight walls.
+ */
+function simplifyOrthogonalVIDA(ring: MetricPoint[]): MetricPoint[] {
+  if (ring.length < 5) return ring;
+  const result: MetricPoint[] = [];
+  const n = ring.length;
+
+  for (let i = 0; i < n; i++) {
+    const prev = ring[(i - 1 + n) % n];
+    const curr = ring[i];
+    const next = ring[(i + 1) % n];
+
+    const v1x = curr.x - prev.x;
+    const v1z = curr.z - prev.z;
+    const len1 = Math.hypot(v1x, v1z);
+
+    const v2x = next.x - curr.x;
+    const v2z = next.z - curr.z;
+    const len2 = Math.hypot(v2x, v2z);
+
+    if (len1 < 0.05 || len2 < 0.05) continue;
+
+    // Dot product between normalized direction vectors
+    const dot = (v1x * v2x + v1z * v2z) / (len1 * len2);
+    // If deflection is less than ~5 degrees (dot > cos(5 deg) ~ 0.99619), remove collinear jitter
+    if (dot > 0.99619) {
+      continue;
+    }
+
+    result.push(curr);
+  }
+
+  return result.length >= 3 ? result : ring;
+}
+
 export class BuildingBuilder {
   /**
    * Generates high-detail 3D building geometry matching authentic Vietnamese urban architecture:
@@ -30,8 +77,41 @@ export class BuildingBuilder {
       rawOuter.length > 3 &&
       Math.abs(rawOuter[0].x - rawOuter[rawOuter.length - 1].x) < 0.001 &&
       Math.abs(rawOuter[0].z - rawOuter[rawOuter.length - 1].z) < 0.001;
-    const outerRing = isClosed ? rawOuter.slice(0, -1) : rawOuter;
+    let outerRing = isClosed ? rawOuter.slice(0, -1) : [...rawOuter];
+
+    // Light orthogonalization for AI-extracted footprints
+    if (building.source === 'vida') {
+      outerRing = simplifyOrthogonalVIDA(outerRing);
+    }
     if (outerRing.length < 3) return null;
+
+    // Standardize outer ring winding order to CCW (signedArea > 0 on XZ plane)
+    if (computeSignedArea(outerRing) < 0) {
+      outerRing.reverse();
+    }
+
+    // Process and standardize holes (giếng trời / courtyards)
+    const cleanHoles: MetricPoint[][] = [];
+    for (let h = 1; h < building.rings.length; h++) {
+      const rawHole = building.rings[h];
+      const holeClosed =
+        rawHole.length > 3 &&
+        Math.abs(rawHole[0].x - rawHole[rawHole.length - 1].x) < 0.001 &&
+        Math.abs(rawHole[0].z - rawHole[rawHole.length - 1].z) < 0.001;
+      let hole = holeClosed ? rawHole.slice(0, -1) : [...rawHole];
+
+      if (building.source === 'vida') {
+        hole = simplifyOrthogonalVIDA(hole);
+      }
+
+      if (hole.length >= 3) {
+        // Standardize hole winding order to CW (signedArea < 0 on XZ plane)
+        if (computeSignedArea(hole) > 0) {
+          hole.reverse();
+        }
+        cleanHoles.push(hole);
+      }
+    }
 
     // Architectural typology:
     // 1. Skyscraper / Office Tower (> 35m)
@@ -41,14 +121,11 @@ export class BuildingBuilder {
     const isTower = height > 35;
     const isApartment = !isTower && height > 18 && outerRing.length >= 4;
     const isPublic = building.isHistoric || building.isWorship;
-
-    // Stable hash for deterministic architectural variations
-    const idHash = building.id.split('').reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) | 0, 0);
-
-    // Sloped roofs on 75% of residential tube houses and all public pagodas/schools (matching Image 2)
+    // Sloped roofs on 45% of residential tube houses and all public schools/pagodas (only when no courtyards)
     const hasSlopedRoof =
+      cleanHoles.length === 0 &&
       (isPublic || (!isTower && !isApartment && outerRing.length === 4)) &&
-      (Math.abs(idHash) % 4 !== 0);
+      (building.id.charCodeAt(building.id.length - 1) % 2 === 0);
 
     // Prepare coordinates for earcut
     const flatCoords: number[] = [];
@@ -58,19 +135,10 @@ export class BuildingBuilder {
       flatCoords.push(outerRing[i].x, outerRing[i].z);
     }
 
-    for (let h = 1; h < building.rings.length; h++) {
-      const rawHole = building.rings[h];
-      const holeClosed =
-        rawHole.length > 3 &&
-        Math.abs(rawHole[0].x - rawHole[rawHole.length - 1].x) < 0.001 &&
-        Math.abs(rawHole[0].z - rawHole[rawHole.length - 1].z) < 0.001;
-      const hole = holeClosed ? rawHole.slice(0, -1) : rawHole;
-
-      if (hole.length >= 3) {
-        holeIndices.push(flatCoords.length / 2);
-        for (let i = 0; i < hole.length; i++) {
-          flatCoords.push(hole[i].x, hole[i].z);
-        }
+    for (const hole of cleanHoles) {
+      holeIndices.push(flatCoords.length / 2);
+      for (let i = 0; i < hole.length; i++) {
+        flatCoords.push(hole[i].x, hole[i].z);
       }
     }
 
@@ -89,32 +157,18 @@ export class BuildingBuilder {
     if (hasSlopedRoof) {
       // Vibrant terracotta red / orange roof or cobalt blue metal roof as in reference image!
       const roofPalette = [
-        SAIGON_PALETTES.terracottaRoof, // 0xdc2626 Ngói đỏ Đồng Nai
-        SAIGON_PALETTES.orangeRoof,     // 0xea580c Ngói cam nung
-        SAIGON_PALETTES.cinnamonRoof,   // 0xc2410c Ngói quế
-        SAIGON_PALETTES.crimsonRoof,    // 0xb91c1c Ngói đỏ thẫm
-        SAIGON_PALETTES.blueRoof,       // 0x2563eb Tôn lạnh xanh dương
-        SAIGON_PALETTES.sapphireRoof,   // 0x1d4ed8 Tôn sapphire
-        SAIGON_PALETTES.mossGreenRoof,  // 0x15803d Tôn xanh rêu
+        SAIGON_PALETTES.terracottaRoof, // 0xdc2626
+        SAIGON_PALETTES.crimsonRoof,    // 0xb91c1c
+        SAIGON_PALETTES.orangeRoof,     // 0xea580c
+        SAIGON_PALETTES.blueRoof,       // 0x2563eb
+        SAIGON_PALETTES.sapphireRoof,   // 0x1d4ed8
       ];
-      const rIdx = Math.abs(idHash) % roofPalette.length;
+      const rIdx = building.id.charCodeAt(0) % roofPalette.length;
       roofColor = new THREE.Color(roofPalette[rIdx]);
     } else if (isTower) {
-      // Modern light concrete / mechanical roof with elevator penthouse (never pitch black!)
-      roofColor = new THREE.Color(SAIGON_PALETTES.towerRoofMechanical); // 0x94a3b8
-    } else if (isApartment) {
-      roofColor = new THREE.Color(SAIGON_PALETTES.flatRoofConcrete); // 0xcfd4dc
+      roofColor = new THREE.Color(SAIGON_PALETTES.towerSlate); // Dark flat mechanical roof
     } else {
-      // Authentic flat-roofed Vietnamese tube house rooftop terrace (patio tile, metal shelter, rooftop garden)
-      const flatRoofPalette = [
-        SAIGON_PALETTES.flatRoofTerracotta, // 0xc2410c Sân thượng gạch tàu đỏ
-        SAIGON_PALETTES.flatRoofOchre,      // 0xd97706 Sân thượng gạch gốm
-        SAIGON_PALETTES.flatRoofBlueMetal,  // 0x2563eb Mái che tôn xanh
-        SAIGON_PALETTES.mossGreenRoof,      // 0x15803d Mái che xanh lá
-        SAIGON_PALETTES.flatRoofConcrete,   // 0xcfd4dc Sàn bê tông lát đá
-      ];
-      const rIdx = Math.abs(idHash) % flatRoofPalette.length;
-      roofColor = new THREE.Color(flatRoofPalette[rIdx]);
+      roofColor = new THREE.Color(SAIGON_PALETTES.flatRoofConcrete); // Clean concrete patio roof
     }
 
     const wallColor = baseColor.clone();
@@ -294,12 +348,10 @@ export class BuildingBuilder {
         const segLen = Math.hypot(dx, dz);
         if (segLen < 0.1) continue;
 
-        let nx = dz / segLen;
-        let nz = -dx / segLen;
-        if (isHole) {
-          nx = -nx;
-          nz = -nz;
-        }
+        // With CCW outerRing, (dz, -dx) points outward.
+        // With CW cleanHoles, (dz, -dx) naturally points inward into the courtyard.
+        const nx = dz / segLen;
+        const nz = -dx / segLen;
 
         const v0 = [pCurrent.x, 0, pCurrent.z];
         const v1 = [pNext.x, 0, pNext.z];
@@ -348,10 +400,8 @@ export class BuildingBuilder {
         );
         uvs.push(u0, v0_uv, u1, v1_uv, u0, v1_uv);
 
-
-
-        // Rooftop Parapet border (0.45m wall around flat roofs)
-        if (!hasSlopedRoof) {
+        // Rooftop Parapet border (0.45m wall around flat roofs, outer perimeter only)
+        if (!hasSlopedRoof && !isHole) {
           const vTop0 = [pCurrent.x, height, pCurrent.z];
           const vTop1 = [pNext.x, height, pNext.z];
           const vLip0 = [pCurrent.x, height + 0.45, pCurrent.z];
@@ -379,16 +429,11 @@ export class BuildingBuilder {
     };
 
     addWallForRing(outerRing, false);
-    for (let h = 1; h < building.rings.length; h++) {
-      const hRing = building.rings[h];
-      const hClean =
-        hRing.length > 3 && hRing[0].x === hRing[hRing.length - 1].x
-          ? hRing.slice(0, -1)
-          : hRing;
-      addWallForRing(hClean, true);
+    for (const hole of cleanHoles) {
+      addWallForRing(hole, true);
     }
 
-    // 3. ROOFTOP STRUCTURES: ARCHITECTURAL PENTHOUSE (TOWERS) OR CHUỒNG CU & BỒN NƯỚC (HOUSES)
+    // 3. ROOFTOP STRUCTURES: CHUỒNG CU & BỒN NƯỚC INOX (For flat-roofed houses)
     if (!hasSlopedRoof && height >= 7.0 && outerRing.length >= 4) {
       let cx = 0;
       let cz = 0;
@@ -399,112 +444,69 @@ export class BuildingBuilder {
       cx /= outerRing.length;
       cz /= outerRing.length;
 
-      if (isTower) {
-        // Modern skyscraper mechanical penthouse (HVAC & elevator machine room)
-        const roomW = 4.2;
-        const roomH = 3.6;
-        const rx0 = cx - roomW;
-        const rx1 = cx + roomW;
-        const rz0 = cz - roomW;
-        const rz1 = cz + roomW;
-        const ry0 = height;
-        const ry1 = height + roomH;
+      const roomW = 1.3;
+      const roomH = 2.2;
+      const rx0 = cx - roomW;
+      const rx1 = cx + roomW;
+      const rz0 = cz - roomW;
+      const rz1 = cz + roomW;
+      const ry0 = height;
+      const ry1 = height + roomH;
 
-        const roomQuads = [
-          [[rx0, ry0, rz0], [rx1, ry0, rz0], [rx1, ry1, rz0], [rx0, ry1, rz0], [0, 0, -1]],
-          [[rx1, ry0, rz0], [rx1, ry0, rz1], [rx1, ry1, rz1], [rx1, ry1, rz0], [1, 0, 0]],
-          [[rx1, ry0, rz1], [rx0, ry0, rz1], [rx0, ry1, rz1], [rx0, ry1, rz1], [0, 0, 1]],
-          [[rx0, ry0, rz1], [rx0, ry0, rz0], [rx0, ry1, rz0], [rx0, ry1, rz1], [-1, 0, 0]],
-        ];
+      const roomQuads = [
+        [[rx0, ry0, rz0], [rx1, ry0, rz0], [rx1, ry1, rz0], [rx0, ry1, rz0], [0, 0, -1]],
+        [[rx1, ry0, rz0], [rx1, ry0, rz1], [rx1, ry1, rz1], [rx1, ry1, rz0], [1, 0, 0]],
+        [[rx1, ry0, rz1], [rx0, ry0, rz1], [rx0, ry1, rz1], [rx0, ry1, rz1], [0, 0, 1]],
+        [[rx0, ry0, rz1], [rx0, ry0, rz0], [rx0, ry1, rz0], [rx0, ry1, rz1], [-1, 0, 0]],
+      ];
 
-        for (const [w0, w1, w2, w3, n] of roomQuads) {
-          positions.push(...w0, ...w1, ...w2);
-          normals.push(...n, ...n, ...n);
-          colors.push(0.85, 0.88, 0.92, 0.85, 0.88, 0.92, 0.85, 0.88, 0.92);
-          uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
-
-          positions.push(...w0, ...w2, ...w3);
-          normals.push(...n, ...n, ...n);
-          colors.push(0.85, 0.88, 0.92, 0.85, 0.88, 0.92, 0.85, 0.88, 0.92);
-          uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
-        }
-
-        // Penthouse top cap
-        positions.push(rx0, ry1, rz0, rx1, ry1, rz0, rx1, ry1, rz1);
-        normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
-        colors.push(0.42, 0.48, 0.55, 0.42, 0.48, 0.55, 0.42, 0.48, 0.55);
+      for (const [w0, w1, w2, w3, n] of roomQuads) {
+        positions.push(...w0, ...w1, ...w2);
+        normals.push(...n, ...n, ...n);
+        colors.push(0.92, 0.92, 0.94, 0.92, 0.92, 0.94, 0.92, 0.92, 0.94);
         uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
 
-        positions.push(rx0, ry1, rz0, rx1, ry1, rz1, rx0, ry1, rz1);
-        normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
-        colors.push(0.42, 0.48, 0.55, 0.42, 0.48, 0.55, 0.42, 0.48, 0.55);
+        positions.push(...w0, ...w2, ...w3);
+        normals.push(...n, ...n, ...n);
+        colors.push(0.92, 0.92, 0.94, 0.92, 0.92, 0.94, 0.92, 0.92, 0.94);
         uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
-      } else {
-        // Residential tube house chuồng cu
-        const roomW = 1.3;
-        const roomH = 2.2;
-        const rx0 = cx - roomW;
-        const rx1 = cx + roomW;
-        const rz0 = cz - roomW;
-        const rz1 = cz + roomW;
-        const ry0 = height;
-        const ry1 = height + roomH;
+      }
 
-        const roomQuads = [
-          [[rx0, ry0, rz0], [rx1, ry0, rz0], [rx1, ry1, rz0], [rx0, ry1, rz0], [0, 0, -1]],
-          [[rx1, ry0, rz0], [rx1, ry0, rz1], [rx1, ry1, rz1], [rx1, ry1, rz0], [1, 0, 0]],
-          [[rx1, ry0, rz1], [rx0, ry0, rz1], [rx0, ry1, rz1], [rx0, ry1, rz1], [0, 0, 1]],
-          [[rx0, ry0, rz1], [rx0, ry0, rz0], [rx0, ry1, rz0], [rx0, ry1, rz1], [-1, 0, 0]],
-        ];
+      // Chuồng cu roof
+      positions.push(rx0, ry1, rz0, rx1, ry1, rz0, rx1, ry1, rz1);
+      normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
+      colors.push(0.5, 0.55, 0.6, 0.5, 0.55, 0.6, 0.5, 0.55, 0.6);
+      uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
 
-        for (const [w0, w1, w2, w3, n] of roomQuads) {
-          positions.push(...w0, ...w1, ...w2);
-          normals.push(...n, ...n, ...n);
-          colors.push(0.92, 0.92, 0.94, 0.92, 0.92, 0.94, 0.92, 0.92, 0.94);
-          uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
+      positions.push(rx0, ry1, rz0, rx1, ry1, rz1, rx0, ry1, rz1);
+      normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
+      colors.push(0.5, 0.55, 0.6, 0.5, 0.55, 0.6, 0.5, 0.55, 0.6);
+      uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
 
-          positions.push(...w0, ...w2, ...w3);
-          normals.push(...n, ...n, ...n);
-          colors.push(0.92, 0.92, 0.94, 0.92, 0.92, 0.94, 0.92, 0.92, 0.94);
-          uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
-        }
+      // Stainless Steel Water Tank (Bồn nước Tân Á Đại Thành)
+      const tankX = cx + roomW + 0.8;
+      const tankZ = cz;
+      const tankY = height + 0.5;
+      const tankR = 0.55;
+      const tankH = 1.0;
 
-        // Chuồng cu roof
-        positions.push(rx0, ry1, rz0, rx1, ry1, rz0, rx1, ry1, rz1);
-        normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
-        colors.push(0.5, 0.55, 0.6, 0.5, 0.55, 0.6, 0.5, 0.55, 0.6);
+      for (let s = 0; s < 6; s++) {
+        const a1 = (s * Math.PI * 2) / 6;
+        const a2 = ((s + 1) * Math.PI * 2) / 6;
+        const tx1 = tankX + Math.cos(a1) * tankR;
+        const tz1 = tankZ + Math.sin(a1) * tankR;
+        const tx2 = tankX + Math.cos(a2) * tankR;
+        const tz2 = tankZ + Math.sin(a2) * tankR;
+
+        positions.push(tx1, tankY, tz1, tx2, tankY, tz2, tx2, tankY + tankH, tz2);
+        normals.push(0, 0, 1, 0, 0, 1, 0, 0, 1);
+        colors.push(0.88, 0.92, 0.96, 0.88, 0.92, 0.96, 0.88, 0.92, 0.96);
         uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
 
-        positions.push(rx0, ry1, rz0, rx1, ry1, rz1, rx0, ry1, rz1);
-        normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
-        colors.push(0.5, 0.55, 0.6, 0.5, 0.55, 0.6, 0.5, 0.55, 0.6);
+        positions.push(tx1, tankY, tz1, tx2, tankY + tankH, tz2, tx1, tankY + tankH, tz1);
+        normals.push(0, 0, 1, 0, 0, 1, 0, 0, 1);
+        colors.push(0.88, 0.92, 0.96, 0.88, 0.92, 0.96, 0.88, 0.92, 0.96);
         uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
-
-        // Stainless Steel Water Tank (Bồn nước Tân Á Đại Thành)
-        const tankX = cx + roomW + 0.8;
-        const tankZ = cz;
-        const tankY = height + 0.5;
-        const tankR = 0.55;
-        const tankH = 1.0;
-
-        for (let s = 0; s < 6; s++) {
-          const a1 = (s * Math.PI * 2) / 6;
-          const a2 = ((s + 1) * Math.PI * 2) / 6;
-          const tx1 = tankX + Math.cos(a1) * tankR;
-          const tz1 = tankZ + Math.sin(a1) * tankR;
-          const tx2 = tankX + Math.cos(a2) * tankR;
-          const tz2 = tankZ + Math.sin(a2) * tankR;
-
-          positions.push(tx1, tankY, tz1, tx2, tankY, tz2, tx2, tankY + tankH, tz2);
-          normals.push(0, 0, 1, 0, 0, 1, 0, 0, 1);
-          colors.push(0.88, 0.92, 0.96, 0.88, 0.92, 0.96, 0.88, 0.92, 0.96);
-          uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
-
-          positions.push(tx1, tankY, tz1, tx2, tankY + tankH, tz2, tx1, tankY + tankH, tz1);
-          normals.push(0, 0, 1, 0, 0, 1, 0, 0, 1);
-          colors.push(0.88, 0.92, 0.96, 0.88, 0.92, 0.96, 0.88, 0.92, 0.96);
-          uvs.push(0.75, 0.75, 0.75, 0.75, 0.75, 0.75);
-        }
       }
     }
 

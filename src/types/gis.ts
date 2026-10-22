@@ -85,6 +85,7 @@ export interface RoadGraphEdge {
   highway: string;
   name: string;
   isAlley: boolean;
+  width?: number;
   isBridge?: boolean;
   elevation?: number;
 }

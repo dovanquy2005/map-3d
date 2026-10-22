@@ -133,6 +133,7 @@ export class SceneManager {
       if (
         obj.name.startsWith('building_') ||
         obj.name.startsWith('roads_') ||
+        obj.name.startsWith('bridge_') ||
         obj.name.startsWith('water_') ||
         obj.name.startsWith('parks_') ||
         obj.name.startsWith('trees_') ||

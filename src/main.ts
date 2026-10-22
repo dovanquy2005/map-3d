@@ -702,7 +702,7 @@ class SaigonShipperApp {
       this.sceneManager.scene.add(this.trafficSignalSystem.group);
 
       // 5G. Autonomous Moving Traffic Simulation Obeying Lanes & Signals (3,000 xe)
-      this.cityTraffic.initSimulation(fusionResult.roadGraph, this.trafficSignalSystem);
+      this.cityTraffic.initSimulation(fusionResult.roadGraph);
       this.sceneManager.scene.add(this.cityTraffic.group);
 
       // 5H. Crowded Vietnamese Pedestrians on Sidewalks (650+ Người dân đi bộ đội nón lá)

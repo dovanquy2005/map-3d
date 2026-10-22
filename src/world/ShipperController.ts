@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { BuildingItem, MetricPoint, RoadNetworkGraph } from '../types/gis';
 import { VehicleModels } from './VehicleModels';
+import { AudioManager } from '../services/AudioManager';
 
 export interface ShipperStatus {
   speedKmh: number;
   currentRoadName: string;
   isColliding: boolean;
   position: { x: number; z: number };
+  blinkerState: 'none' | 'left' | 'right';
+  isBlinkerPhaseOn?: boolean;
 }
 
 export class ShipperController {
@@ -17,6 +20,16 @@ export class ShipperController {
   private steeringFork: THREE.Group;
   private brakeLightMat: THREE.MeshStandardMaterial;
   private bikeBody: THREE.Group;
+
+  // Turn signal blinkers
+  private leftBlinkerMat: THREE.MeshStandardMaterial;
+  private rightBlinkerMat: THREE.MeshStandardMaterial;
+  private leftBlinkers: THREE.Mesh[] = [];
+  private rightBlinkers: THREE.Mesh[] = [];
+  private blinkerState: 'none' | 'left' | 'right' = 'none';
+  private blinkTimer: number = 0;
+  private blinkPhase: boolean = false;
+  private isManualBlinker: boolean = false;
 
   private camera: THREE.PerspectiveCamera;
   private buildings: BuildingItem[] = [];
@@ -63,11 +76,30 @@ export class ShipperController {
     this.headlight = pack.headlight;
     this.brakeLightMat = pack.brakeLightMat;
 
+    // Independent turn signal blinker materials for left and right
+    this.leftBlinkerMat = new THREE.MeshStandardMaterial({
+      color: 0xffa500,
+      emissive: 0xff7700,
+      emissiveIntensity: 0.15,
+      roughness: 0.2,
+    });
+    this.rightBlinkerMat = new THREE.MeshStandardMaterial({
+      color: 0xffa500,
+      emissive: 0xff7700,
+      emissiveIntensity: 0.15,
+      roughness: 0.2,
+    });
+    this.leftBlinkers = pack.leftBlinkers;
+    this.rightBlinkers = pack.rightBlinkers;
+    this.leftBlinkers.forEach((m) => (m.material = this.leftBlinkerMat));
+    this.rightBlinkers.forEach((m) => (m.material = this.rightBlinkerMat));
+
     this.bikeGroup.add(this.bikeBody);
 
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
   }
+
 
   public setEnvironment(buildings: BuildingItem[], roadGraph: RoadNetworkGraph): void {
     this.buildings = buildings;
@@ -110,6 +142,9 @@ export class ShipperController {
     if (active) {
       // Immediate camera snap
       this.updateCamera(0.1, true);
+      AudioManager.getInstance().startEngine();
+    } else {
+      AudioManager.getInstance().stopEngine();
     }
   }
 
@@ -134,10 +169,27 @@ export class ShipperController {
       case 'KeyA':
       case 'ArrowLeft':
         this.keys.left = true;
+        if (!this.isManualBlinker) this.blinkerState = 'left';
         break;
       case 'KeyD':
       case 'ArrowRight':
         this.keys.right = true;
+        if (!this.isManualBlinker) this.blinkerState = 'right';
+        break;
+      case 'KeyQ':
+        // Toggle manual Left Turn Signal (Sin nhan trái)
+        this.blinkerState = this.blinkerState === 'left' ? 'none' : 'left';
+        this.isManualBlinker = this.blinkerState !== 'none';
+        break;
+      case 'KeyE':
+        // Toggle manual Right Turn Signal (Sin nhan phải)
+        this.blinkerState = this.blinkerState === 'right' ? 'none' : 'right';
+        this.isManualBlinker = this.blinkerState !== 'none';
+        break;
+      case 'KeyH':
+      case 'KeyB':
+        // Vietnam scooter horn
+        AudioManager.getInstance().playHorn();
         break;
       case 'Space':
         this.keys.brake = true;
@@ -162,10 +214,16 @@ export class ShipperController {
       case 'KeyA':
       case 'ArrowLeft':
         this.keys.left = false;
+        if (!this.isManualBlinker && this.blinkerState === 'left') {
+          this.blinkerState = 'none';
+        }
         break;
       case 'KeyD':
       case 'ArrowRight':
         this.keys.right = false;
+        if (!this.isManualBlinker && this.blinkerState === 'right') {
+          this.blinkerState = 'none';
+        }
         break;
       case 'Space':
         this.keys.brake = false;
@@ -416,15 +474,41 @@ export class ShipperController {
     }
 
     // Dynamic brake light glow (intensifies when braking or reversing)
+    const isBraking = this.keys.brake || (this.keys.backward && this.velocity > 0);
     if (this.brakeLightMat) {
-      const isBraking = this.keys.brake || (this.keys.backward && this.velocity > 0);
       this.brakeLightMat.emissiveIntensity = isBraking ? 3.8 : 1.2;
     }
 
-    // 4. Update 3rd-Person Follow Camera
+    // 4. Update Engine Procedural Sound (Web Audio API)
+    const speedKmh = Math.round(Math.abs(this.velocity) * 3.6);
+    AudioManager.getInstance().updateEngine(speedKmh, this.keys.forward, isBraking);
+
+    // 5. Update Turn Signal (Xi-Nhan) Blinking & Audio Relay Click
+    if (this.blinkerState !== 'none') {
+      this.blinkTimer += deltaTime;
+      const phase = Math.sin(this.blinkTimer * 14.0) > 0;
+      if (phase !== this.blinkPhase) {
+        this.blinkPhase = phase;
+        AudioManager.getInstance().playBlinkerClick(phase);
+      }
+      const glow = phase ? 5.2 : 0.15;
+      if (this.blinkerState === 'left') {
+        this.leftBlinkerMat.emissiveIntensity = glow;
+        this.rightBlinkerMat.emissiveIntensity = 0.15;
+      } else {
+        this.rightBlinkerMat.emissiveIntensity = glow;
+        this.leftBlinkerMat.emissiveIntensity = 0.15;
+      }
+    } else {
+      this.blinkPhase = false;
+      this.leftBlinkerMat.emissiveIntensity = 0.15;
+      this.rightBlinkerMat.emissiveIntensity = 0.15;
+    }
+
+    // 6. Update 3rd-Person Follow Camera
     this.updateCamera(deltaTime, false);
 
-    // 5. Detect Nearest Street / Alley / Bridge name from Road Graph
+    // 7. Detect Nearest Street / Alley / Bridge name from Road Graph
     if (minEdgeDist < 40 && nearestEdge && nearestEdge.name) {
       if (nearestEdge.isBridge) {
         this.currentRoadName = nearestEdge.name.toLowerCase().startsWith('cầu')
@@ -438,12 +522,13 @@ export class ShipperController {
     }
 
     // Status callback
-    const speedKmh = Math.round(Math.abs(this.velocity) * 3.6);
     this.onStatusChange?.({
       speedKmh,
       currentRoadName: this.currentRoadName,
       isColliding: hadCollision,
       position: { x: this.position.x, z: this.position.z },
+      blinkerState: this.blinkerState,
+      isBlinkerPhaseOn: this.blinkPhase,
     });
   }
 
@@ -478,6 +563,7 @@ export class ShipperController {
   }
 
   public dispose(): void {
+    AudioManager.getInstance().stopEngine();
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
   }

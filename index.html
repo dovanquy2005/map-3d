@@ -23,7 +23,13 @@
           <div class="brand-title">
             <span>🛵 SAIGON SHIPPER</span>
           </div>
-          <div style="display: flex; gap: 4px; align-items: center;">
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <button id="btn-sound-toggle" class="btn-icon-hud" title="Bật / Tắt âm thanh xe cộ & đường phố">
+              <span id="sound-icon">🔊</span>
+            </button>
+            <button id="btn-sidebar-collapse" class="btn-icon-hud" title="Thu gọn Sidebar (Phím H hoặc Click)">
+              <span style="font-size: 0.8rem;">◀</span>
+            </button>
             <span class="badge-tag country-badge" id="badge-country">VN</span>
             <span class="badge-tag">PHASE 1</span>
           </div>
@@ -126,11 +132,32 @@
         </div>
       </aside>
 
+      <!-- Floating Sidebar Re-Open Tab (visible when sidebar is collapsed) -->
+      <button id="btn-sidebar-open" class="floating-sidebar-tab" title="Mở bảng điều khiển (Phím H hoặc Click)">
+        <span class="tab-arrow">▶</span>
+        <span class="tab-label">🛵 BẢNG ĐIỀU KHIỂN</span>
+      </button>
+
       <!-- In-Game Shipper Driving HUD -->
       <div id="shipper-hud">
         <div class="current-street-badge">
           <span>📍</span>
           <span id="hud-street-name">Đang dò tìm mặt đường...</span>
+        </div>
+
+        <!-- Realtime Turn Signals (Xi-Nhan) & Horn HUD -->
+        <div class="turn-signals-hud">
+          <div class="signal-badge" id="hud-blinker-left" title="Xi-nhan Trái (Phím Q hoặc A)">
+            <span class="signal-arrow">◀</span>
+            <span class="signal-key">Q / A</span>
+          </div>
+          <button id="hud-btn-horn" class="horn-btn-hud" title="Bấm còi xe bíp bíp (Phím H)">
+            <span>📢 CÒI (H)</span>
+          </button>
+          <div class="signal-badge" id="hud-blinker-right" title="Xi-nhan Phải (Phím E hoặc D)">
+            <span class="signal-key">E / D</span>
+            <span class="signal-arrow">▶</span>
+          </div>
         </div>
 
         <div class="speedometer-card" id="hud-speedometer-card">
@@ -140,8 +167,9 @@
 
         <div class="controls-hint-card">
           <div><span class="key-badge">W</span> / <span class="key-badge">↑</span> Ga &nbsp; <span class="key-badge">S</span> / <span class="key-badge">↓</span> Lùi</div>
-          <div><span class="key-badge">A</span> <span class="key-badge">D</span> / <span class="key-badge">←</span> <span class="key-badge">→</span> Lái & Nghiêng xe</div>
-          <div><span class="key-badge">SPACE</span> Thắng &nbsp; <span class="key-badge">R</span> Đặt lại xe</div>
+          <div><span class="key-badge">A</span> <span class="key-badge">D</span> Lái xe &nbsp; <span class="key-badge">Q</span> <span class="key-badge">E</span> Sin nhan</div>
+          <div><span class="key-badge">H</span> Còi xe &nbsp; <span class="key-badge">SPACE</span> Thắng &nbsp; <span class="key-badge">R</span> Đặt lại</div>
+          <div><span class="key-badge">TAB</span> / <span class="key-badge">H</span> Ẩn/Hiện Sidebar</div>
         </div>
       </div>
     </div>

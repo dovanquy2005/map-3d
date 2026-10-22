@@ -6,7 +6,8 @@ export class TextureGenerator {
   private static facadeAtlas: THREE.CanvasTexture | null = null;
 
   /**
-   * Procedural asphalt road texture with crisp yellow dashed centerline and white shoulder lines
+   * Procedural asphalt road texture - clean dark matte asphalt (#2c2e33) with fine micro-grain
+   * Markings are rendered as dedicated 3D geometry with pullback at intersections.
    */
   public static getRoadTexture(): THREE.CanvasTexture {
     if (this.roadTexture) return this.roadTexture;
@@ -16,42 +17,35 @@ export class TextureGenerator {
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
 
-    // Clean dark matte asphalt matching reference image
-    ctx.fillStyle = '#23272f';
+    // Clean dark matte asphalt matching #2c2e33
+    ctx.fillStyle = '#2c2e33';
     ctx.fillRect(0, 0, 512, 512);
 
     // Subtle fine asphalt micro-grain
-    for (let i = 0; i < 3000; i++) {
+    for (let i = 0; i < 4000; i++) {
       const x = Math.random() * 512;
       const y = Math.random() * 512;
-      const gray = Math.floor(30 + Math.random() * 15);
+      const gray = Math.floor(38 + Math.random() * 18);
       ctx.fillStyle = `rgb(${gray},${gray},${gray})`;
       ctx.fillRect(x, y, 2, 2);
     }
 
-    // Crisp white shoulder lines (both edges)
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    ctx.moveTo(28, 0);
-    ctx.lineTo(28, 512);
-    ctx.moveTo(484, 0);
-    ctx.lineTo(484, 512);
-    ctx.stroke();
-
-    // Golden yellow dashed centerline
-    ctx.strokeStyle = '#facc15';
-    ctx.lineWidth = 8;
-    ctx.setLineDash([48, 32]);
-    ctx.beginPath();
-    ctx.moveTo(256, 0);
-    ctx.lineTo(256, 512);
-    ctx.stroke();
+    // Subtle surface tone variation
+    for (let i = 0; i < 200; i++) {
+      const x = Math.random() * 512;
+      const y = Math.random() * 512;
+      const r = 4 + Math.random() * 8;
+      const opacity = 0.04 + Math.random() * 0.04;
+      ctx.fillStyle = `rgba(60,64,72,${opacity})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(1, 1);
+    texture.repeat.set(2, 2);
     this.roadTexture = texture;
     return texture;
   }

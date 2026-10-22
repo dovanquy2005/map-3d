@@ -10,6 +10,53 @@ export interface BuiltCityResult {
   totalBuildings: number;
 }
 
+function computeSignedArea(ring: MetricPoint[]): number {
+  let area = 0;
+  const n = ring.length;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    area += ring[i].x * ring[j].z - ring[j].x * ring[i].z;
+  }
+  return area * 0.5;
+}
+
+/**
+ * Light orthogonalization: removes redundant raster-staircase vertices (< 5 deg deflection)
+ * from AI-extracted satellite footprints (source === 'vida'), leaving clean straight walls.
+ */
+function simplifyOrthogonalVIDA(ring: MetricPoint[]): MetricPoint[] {
+  if (ring.length < 5) return ring;
+  const result: MetricPoint[] = [];
+  const n = ring.length;
+
+  for (let i = 0; i < n; i++) {
+    const prev = ring[(i - 1 + n) % n];
+    const curr = ring[i];
+    const next = ring[(i + 1) % n];
+
+    const v1x = curr.x - prev.x;
+    const v1z = curr.z - prev.z;
+    const len1 = Math.hypot(v1x, v1z);
+
+    const v2x = next.x - curr.x;
+    const v2z = next.z - curr.z;
+    const len2 = Math.hypot(v2x, v2z);
+
+    if (len1 < 0.05 || len2 < 0.05) continue;
+
+    // Dot product between normalized direction vectors
+    const dot = (v1x * v2x + v1z * v2z) / (len1 * len2);
+    // If deflection is less than ~5 degrees (dot > cos(5 deg) ~ 0.99619), remove collinear jitter
+    if (dot > 0.99619) {
+      continue;
+    }
+
+    result.push(curr);
+  }
+
+  return result.length >= 3 ? result : ring;
+}
+
 export class BuildingBuilder {
   /**
    * Generates high-detail 3D building geometry matching authentic Vietnamese urban architecture:
@@ -30,8 +77,41 @@ export class BuildingBuilder {
       rawOuter.length > 3 &&
       Math.abs(rawOuter[0].x - rawOuter[rawOuter.length - 1].x) < 0.001 &&
       Math.abs(rawOuter[0].z - rawOuter[rawOuter.length - 1].z) < 0.001;
-    const outerRing = isClosed ? rawOuter.slice(0, -1) : rawOuter;
+    let outerRing = isClosed ? rawOuter.slice(0, -1) : [...rawOuter];
+
+    // Light orthogonalization for AI-extracted footprints
+    if (building.source === 'vida') {
+      outerRing = simplifyOrthogonalVIDA(outerRing);
+    }
     if (outerRing.length < 3) return null;
+
+    // Standardize outer ring winding order to CCW (signedArea > 0 on XZ plane)
+    if (computeSignedArea(outerRing) < 0) {
+      outerRing.reverse();
+    }
+
+    // Process and standardize holes (giếng trời / courtyards)
+    const cleanHoles: MetricPoint[][] = [];
+    for (let h = 1; h < building.rings.length; h++) {
+      const rawHole = building.rings[h];
+      const holeClosed =
+        rawHole.length > 3 &&
+        Math.abs(rawHole[0].x - rawHole[rawHole.length - 1].x) < 0.001 &&
+        Math.abs(rawHole[0].z - rawHole[rawHole.length - 1].z) < 0.001;
+      let hole = holeClosed ? rawHole.slice(0, -1) : [...rawHole];
+
+      if (building.source === 'vida') {
+        hole = simplifyOrthogonalVIDA(hole);
+      }
+
+      if (hole.length >= 3) {
+        // Standardize hole winding order to CW (signedArea < 0 on XZ plane)
+        if (computeSignedArea(hole) > 0) {
+          hole.reverse();
+        }
+        cleanHoles.push(hole);
+      }
+    }
 
     // Architectural typology:
     // 1. Skyscraper / Office Tower (> 35m)
@@ -41,8 +121,9 @@ export class BuildingBuilder {
     const isTower = height > 35;
     const isApartment = !isTower && height > 18 && outerRing.length >= 4;
     const isPublic = building.isHistoric || building.isWorship;
-    // Sloped roofs on 45% of residential tube houses and all public schools/pagodas
+    // Sloped roofs on 45% of residential tube houses and all public schools/pagodas (only when no courtyards)
     const hasSlopedRoof =
+      cleanHoles.length === 0 &&
       (isPublic || (!isTower && !isApartment && outerRing.length === 4)) &&
       (building.id.charCodeAt(building.id.length - 1) % 2 === 0);
 
@@ -54,19 +135,10 @@ export class BuildingBuilder {
       flatCoords.push(outerRing[i].x, outerRing[i].z);
     }
 
-    for (let h = 1; h < building.rings.length; h++) {
-      const rawHole = building.rings[h];
-      const holeClosed =
-        rawHole.length > 3 &&
-        Math.abs(rawHole[0].x - rawHole[rawHole.length - 1].x) < 0.001 &&
-        Math.abs(rawHole[0].z - rawHole[rawHole.length - 1].z) < 0.001;
-      const hole = holeClosed ? rawHole.slice(0, -1) : rawHole;
-
-      if (hole.length >= 3) {
-        holeIndices.push(flatCoords.length / 2);
-        for (let i = 0; i < hole.length; i++) {
-          flatCoords.push(hole[i].x, hole[i].z);
-        }
+    for (const hole of cleanHoles) {
+      holeIndices.push(flatCoords.length / 2);
+      for (let i = 0; i < hole.length; i++) {
+        flatCoords.push(hole[i].x, hole[i].z);
       }
     }
 
@@ -276,12 +348,10 @@ export class BuildingBuilder {
         const segLen = Math.hypot(dx, dz);
         if (segLen < 0.1) continue;
 
-        let nx = dz / segLen;
-        let nz = -dx / segLen;
-        if (isHole) {
-          nx = -nx;
-          nz = -nz;
-        }
+        // With CCW outerRing, (dz, -dx) points outward.
+        // With CW cleanHoles, (dz, -dx) naturally points inward into the courtyard.
+        const nx = dz / segLen;
+        const nz = -dx / segLen;
 
         const v0 = [pCurrent.x, 0, pCurrent.z];
         const v1 = [pNext.x, 0, pNext.z];
@@ -330,10 +400,8 @@ export class BuildingBuilder {
         );
         uvs.push(u0, v0_uv, u1, v1_uv, u0, v1_uv);
 
-
-
-        // Rooftop Parapet border (0.45m wall around flat roofs)
-        if (!hasSlopedRoof) {
+        // Rooftop Parapet border (0.45m wall around flat roofs, outer perimeter only)
+        if (!hasSlopedRoof && !isHole) {
           const vTop0 = [pCurrent.x, height, pCurrent.z];
           const vTop1 = [pNext.x, height, pNext.z];
           const vLip0 = [pCurrent.x, height + 0.45, pCurrent.z];
@@ -361,13 +429,8 @@ export class BuildingBuilder {
     };
 
     addWallForRing(outerRing, false);
-    for (let h = 1; h < building.rings.length; h++) {
-      const hRing = building.rings[h];
-      const hClean =
-        hRing.length > 3 && hRing[0].x === hRing[hRing.length - 1].x
-          ? hRing.slice(0, -1)
-          : hRing;
-      addWallForRing(hClean, true);
+    for (const hole of cleanHoles) {
+      addWallForRing(hole, true);
     }
 
     // 3. ROOFTOP STRUCTURES: CHUỒNG CU & BỒN NƯỚC INOX (For flat-roofed houses)

@@ -144,7 +144,7 @@ export class CityTraffic {
           speed: 8.5 + (carIdx % 4) * 0.8, // ~30 - 42 km/h
           targetSpeed: 8.5 + (carIdx % 4) * 0.8,
           laneOffset,
-          currentPos: new THREE.Vector3(n1.x, n1.y || 0.08, n1.z),
+          currentPos: new THREE.Vector3(n1.x, n1.y || 0.05, n1.z),
           heading: Math.atan2(n2.x - n1.x, n2.z - n1.z),
         };
         this.simulatedCars.push(agent);
@@ -166,7 +166,7 @@ export class CityTraffic {
           speed: 7.5 + (scooterIdx % 5) * 0.7, // ~27 - 38 km/h
           targetSpeed: 7.5 + (scooterIdx % 5) * 0.7,
           laneOffset,
-          currentPos: new THREE.Vector3(n1.x, n1.y || 0.08, n1.z),
+          currentPos: new THREE.Vector3(n1.x, n1.y || 0.05, n1.z),
           heading: Math.atan2(n2.x - n1.x, n2.z - n1.z),
         };
         this.simulatedScooters.push(agent);
@@ -269,9 +269,9 @@ export class CityTraffic {
     const cz = n1.z + dz * t;
 
     // Interpolate vertical height along edge (smooth bridge ramp / deck elevation)
-    const y1 = n1.y ?? 0.08;
-    const y2 = n2.y ?? 0.08;
-    const cy = y1 + (y2 - y1) * t + (agent.isScooter ? 0.05 : 0.08);
+    const y1 = n1.y ?? 0.05;
+    const y2 = n2.y ?? 0.05;
+    const cy = y1 + (y2 - y1) * t + (agent.isScooter ? 0.02 : 0.04);
 
     agent.currentPos.set(
       cx + perpX * agent.laneOffset,

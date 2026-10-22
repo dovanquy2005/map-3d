@@ -59,24 +59,24 @@ export const SAIGON_PRESETS: PresetLocation[] = [
 ];
 
 export const ROAD_BUFFER_CONFIG: Record<string, { width: number; radiusKm: number; isAlley: boolean }> = {
-  motorway: { width: 14.0, radiusKm: 0.007, isAlley: false },
-  motorway_link: { width: 12.0, radiusKm: 0.006, isAlley: false },
-  trunk: { width: 14.0, radiusKm: 0.007, isAlley: false },
-  trunk_link: { width: 12.0, radiusKm: 0.006, isAlley: false },
+  motorway: { width: 18.0, radiusKm: 0.009, isAlley: false },
+  motorway_link: { width: 14.0, radiusKm: 0.007, isAlley: false },
+  trunk: { width: 18.0, radiusKm: 0.009, isAlley: false },
+  trunk_link: { width: 14.0, radiusKm: 0.007, isAlley: false },
   primary: { width: 14.0, radiusKm: 0.007, isAlley: false },
   primary_link: { width: 10.0, radiusKm: 0.005, isAlley: false },
-  secondary: { width: 9.0, radiusKm: 0.0045, isAlley: false },
+  secondary: { width: 10.0, radiusKm: 0.005, isAlley: false },
   secondary_link: { width: 8.0, radiusKm: 0.004, isAlley: false },
-  tertiary: { width: 9.0, radiusKm: 0.0045, isAlley: false },
-  tertiary_link: { width: 7.0, radiusKm: 0.0035, isAlley: false },
-  residential: { width: 6.0, radiusKm: 0.003, isAlley: false },
-  unclassified: { width: 6.0, radiusKm: 0.003, isAlley: false },
-  service: { width: 2.8, radiusKm: 0.0014, isAlley: true },
+  tertiary: { width: 8.0, radiusKm: 0.004, isAlley: false },
+  tertiary_link: { width: 6.5, radiusKm: 0.00325, isAlley: false },
+  residential: { width: 6.5, radiusKm: 0.00325, isAlley: false },
+  unclassified: { width: 6.5, radiusKm: 0.00325, isAlley: false },
+  service: { width: 3.5, radiusKm: 0.00175, isAlley: true },
   living_street: { width: 3.5, radiusKm: 0.00175, isAlley: true },
-  alley: { width: 2.8, radiusKm: 0.0014, isAlley: true },
-  pedestrian: { width: 4.0, radiusKm: 0.002, isAlley: false },
-  footway: { width: 2.5, radiusKm: 0.00125, isAlley: true },
-  path: { width: 2.2, radiusKm: 0.0011, isAlley: true },
+  alley: { width: 3.0, radiusKm: 0.0015, isAlley: true },
+  pedestrian: { width: 3.5, radiusKm: 0.00175, isAlley: false },
+  footway: { width: 2.2, radiusKm: 0.0011, isAlley: true },
+  path: { width: 2.0, radiusKm: 0.001, isAlley: true },
   steps: { width: 2.0, radiusKm: 0.001, isAlley: true },
 };
 
@@ -118,9 +118,12 @@ export const SAIGON_PALETTES = {
   glassTowerCyan: 0x38bdf8,
 
   // Pavement & Environment
-  mainAsphalt: 0x2b3342,
-  sidewalkConcrete: 0xe2e8f0,
-  alleyPavement: 0x64748b,
+  mainAsphalt: 0x2c2e33, // Real charcoal asphalt #2c2e33
+  sidewalkConcrete: 0xb8b5ad, // Light warm concrete #b8b5ad
+  curbDropColor: 0x9ca3af,
+  alleyPavement: 0x3d434d,
   tropicalWater: 0x0284c7,
   parkGreen: 0x4ade80,
+  roadMarkingWhite: 0xf8fafc,
+  roadMarkingYellow: 0xfacc15,
 };

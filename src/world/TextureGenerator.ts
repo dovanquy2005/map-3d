@@ -6,7 +6,8 @@ export class TextureGenerator {
   private static facadeAtlas: THREE.CanvasTexture | null = null;
 
   /**
-   * Procedural asphalt road texture with crisp yellow dashed centerline and white shoulder lines
+   * Procedural asphalt road texture - clean dark matte asphalt (#2c2e33) with fine micro-grain
+   * Markings are rendered as dedicated 3D geometry with pullback at intersections.
    */
   public static getRoadTexture(): THREE.CanvasTexture {
     if (this.roadTexture) return this.roadTexture;
@@ -16,32 +17,35 @@ export class TextureGenerator {
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
 
-    // Clean dark neutral matte asphalt matching reference image (pure charcoal, zero blue tint)
-    ctx.fillStyle = '#202226';
+    // Clean dark matte asphalt matching #2c2e33
+    ctx.fillStyle = '#2c2e33';
     ctx.fillRect(0, 0, 512, 512);
 
     // Subtle fine asphalt micro-grain
-    for (let i = 0; i < 3000; i++) {
+    for (let i = 0; i < 4000; i++) {
       const x = Math.random() * 512;
       const y = Math.random() * 512;
-      const gray = Math.floor(25 + Math.random() * 14);
+      const gray = Math.floor(38 + Math.random() * 18);
       ctx.fillStyle = `rgb(${gray},${gray},${gray})`;
       ctx.fillRect(x, y, 2, 2);
     }
 
-    // Golden yellow dashed centerline
-    ctx.strokeStyle = '#facc15';
-    ctx.lineWidth = 7;
-    ctx.setLineDash([48, 32]);
-    ctx.beginPath();
-    ctx.moveTo(256, 0);
-    ctx.lineTo(256, 512);
-    ctx.stroke();
+    // Subtle surface tone variation
+    for (let i = 0; i < 200; i++) {
+      const x = Math.random() * 512;
+      const y = Math.random() * 512;
+      const r = 4 + Math.random() * 8;
+      const opacity = 0.04 + Math.random() * 0.04;
+      ctx.fillStyle = `rgba(60,64,72,${opacity})`;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(1, 1);
+    texture.repeat.set(2, 2);
     this.roadTexture = texture;
     return texture;
   }
@@ -126,11 +130,10 @@ export class TextureGenerator {
 
     // 2. QUADRANT TOP-LEFT: Corporate Glass Tower (x: 0..512, y: 0..512)
     // Three.js UV: U in [0.0, 0.5], V in [0.5, 1.0]
-    // Clean modern architectural slate background (never pitch-black!)
-    ctx.fillStyle = '#334155';
+    ctx.fillStyle = '#0f172a';
     ctx.fillRect(0, 0, 512, 512);
 
-    // Grid of modern architectural reflective glass panes
+    // Grid of reflective glass panes
     const towerRows = 16;
     const towerCols = 10;
     const colW = 512 / towerCols;
@@ -138,21 +141,17 @@ export class TextureGenerator {
 
     for (let r = 0; r < towerRows; r++) {
       const y = r * rowH;
-      // White/silver floor spandrel slab band every 2 floors
-      const isFloorSlab = r % 2 === 0;
-
       for (let c = 0; c < towerCols; c++) {
         const x = c * colW;
-
-        // Modern architectural curtain wall reflections
-        const paneColorIdx = (r * 3 + c * 2) % 6;
-        const paneColors = ['#1e40af', '#2563eb', '#0284c7', '#38bdf8', '#334155', '#475569'];
-        ctx.fillStyle = paneColors[paneColorIdx];
+        // Glass pane reflection variations
+        const isCyan = (r + c * 3) % 4 === 0;
+        const isSky = (r * 2 + c) % 5 === 0;
+        ctx.fillStyle = isCyan ? '#0284c7' : isSky ? '#38bdf8' : '#0f172a';
         ctx.fillRect(x + 2, y + 2, colW - 4, rowH - 4);
 
-        // Crisp silver/white window mullions & floor trim
-        ctx.strokeStyle = isFloorSlab ? '#e2e8f0' : '#cbd5e1';
-        ctx.lineWidth = isFloorSlab ? 2.5 : 1.2;
+        // Mullion border
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 1.5;
         ctx.strokeRect(x, y, colW, rowH);
       }
     }

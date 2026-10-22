@@ -19,9 +19,12 @@ export function buildOverpassQL(bbox: BBox): string {
 (
   way["highway"](${south},${west},${north},${east});
   way["building"](${south},${west},${north},${east});
+  relation["building"](${south},${west},${north},${east});
   way["natural"="water"](${south},${west},${north},${east});
+  relation["natural"="water"](${south},${west},${north},${east});
   way["waterway"](${south},${west},${north},${east});
   way["leisure"="park"](${south},${west},${north},${east});
+  relation["leisure"="park"](${south},${west},${north},${east});
 );
 out geom;`;
 }

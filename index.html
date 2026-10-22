@@ -104,6 +104,11 @@
           <span id="btn-build-text">🚀 DỰNG KHU NÀY (BUILD 3D)</span>
         </button>
 
+        <!-- Dynamic Police Chase Pursuit Trigger Button -->
+        <button id="btn-trigger-chase" class="btn-chase-event" title="Kích hoạt sự kiện Cảnh sát truy đuổi bắt cướp tốc độ cao (Phím P)">
+          <span>🚨 SỰ KIỆN TRUY BẮT (POLICE CHASE)</span>
+        </button>
+
         <!-- Real-time Hardware Metrics -->
         <div class="metrics-row">
           <div class="metric-pill">
@@ -138,6 +143,20 @@
         <span class="tab-label">🛵 BẢNG ĐIỀU KHIỂN</span>
       </button>
 
+      <!-- Police Chase Emergency HUD Banner -->
+      <div id="police-chase-banner" class="chase-banner-overlay" style="display: none;">
+        <div class="chase-banner-content">
+          <div class="chase-siren-indicator">
+            <span class="siren-pulse-red">🚨</span>
+            <span class="chase-badge-text">TRUY BẮT KHẨN CẤP</span>
+          </div>
+          <div class="chase-banner-text" id="chase-banner-msg">
+            Cảnh sát giao thông đang rượt đuổi đối tượng cướp giật phóng nhanh!
+          </div>
+          <button id="btn-close-chase" class="btn-chase-dismiss" title="Kết thúc sự kiện">✕</button>
+        </div>
+      </div>
+
       <!-- In-Game Shipper Driving HUD -->
       <div id="shipper-hud">
         <div class="current-street-badge">
@@ -168,8 +187,8 @@
         <div class="controls-hint-card">
           <div><span class="key-badge">W</span> / <span class="key-badge">↑</span> Ga &nbsp; <span class="key-badge">S</span> / <span class="key-badge">↓</span> Lùi</div>
           <div><span class="key-badge">A</span> <span class="key-badge">D</span> Lái xe &nbsp; <span class="key-badge">Q</span> <span class="key-badge">E</span> Sin nhan</div>
-          <div><span class="key-badge">H</span> Còi xe &nbsp; <span class="key-badge">SPACE</span> Thắng &nbsp; <span class="key-badge">R</span> Đặt lại</div>
-          <div><span class="key-badge">TAB</span> / <span class="key-badge">H</span> Ẩn/Hiện Sidebar</div>
+          <div><span class="key-badge">H</span> Còi xe &nbsp; <span class="key-badge">P</span> Bắt cướp &nbsp; <span class="key-badge">SPACE</span> Thắng</div>
+          <div><span class="key-badge">TAB</span> / <span class="key-badge">H</span> Ẩn/Hiện Sidebar &nbsp; <span class="key-badge">R</span> Đặt lại</div>
         </div>
       </div>
     </div>

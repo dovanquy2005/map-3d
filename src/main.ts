@@ -13,6 +13,8 @@ import { ShipperController } from './world/ShipperController';
 import { CityVegetation } from './world/CityVegetation';
 import { CityTraffic } from './world/CityTraffic';
 import { TrafficSignalSystem } from './world/TrafficSignalSystem';
+import { PedestrianSystem } from './world/PedestrianSystem';
+import { PoliceChaseSystem } from './world/PoliceChaseSystem';
 import { AudioManager } from './services/AudioManager';
 
 class SaigonShipperApp {
@@ -20,6 +22,8 @@ class SaigonShipperApp {
   private shipperController!: ShipperController;
   private cityTraffic!: CityTraffic;
   private trafficSignalSystem!: TrafficSignalSystem;
+  private pedestrianSystem!: PedestrianSystem;
+  private policeChaseSystem!: PoliceChaseSystem;
 
   // Geographic state
   private currentLat = DEFAULT_COORDS.lat;
@@ -60,6 +64,12 @@ class SaigonShipperApp {
   private elBlinkerLeft!: HTMLElement;
   private elBlinkerRight!: HTMLElement;
   private elBtnHorn!: HTMLButtonElement;
+
+  // Police Chase Event Elements
+  private elBtnTriggerChase!: HTMLButtonElement;
+  private elPoliceChaseBanner!: HTMLElement;
+  private elChaseBannerMsg!: HTMLElement;
+  private elBtnCloseChase!: HTMLButtonElement;
 
   private isBuilding = false;
 
@@ -104,6 +114,12 @@ class SaigonShipperApp {
     this.elBlinkerRight = document.getElementById('hud-blinker-right')!;
     this.elBtnHorn = document.getElementById('hud-btn-horn') as HTMLButtonElement;
 
+    // Police chase pursuit event elements
+    this.elBtnTriggerChase = document.getElementById('btn-trigger-chase') as HTMLButtonElement;
+    this.elPoliceChaseBanner = document.getElementById('police-chase-banner')!;
+    this.elChaseBannerMsg = document.getElementById('chase-banner-msg')!;
+    this.elBtnCloseChase = document.getElementById('btn-close-chase') as HTMLButtonElement;
+
     // Initialize audio icon state
     const isMuted = AudioManager.getInstance().getIsMuted();
     this.elSoundIcon.textContent = isMuted ? '🔇' : '🔊';
@@ -124,11 +140,32 @@ class SaigonShipperApp {
     this.cityTraffic = new CityTraffic();
     this.sceneManager.scene.add(this.cityTraffic.group);
 
+    this.pedestrianSystem = new PedestrianSystem();
+    this.sceneManager.scene.add(this.pedestrianSystem.group);
+
+    this.policeChaseSystem = new PoliceChaseSystem();
+    this.sceneManager.scene.add(this.policeChaseSystem.group);
+
     // Register physics/kinematics update loop
     this.sceneManager.registerUpdateHook((dt) => {
       this.shipperController.update(dt);
       this.trafficSignalSystem.update(dt);
       this.cityTraffic.update(dt);
+      this.pedestrianSystem.update(dt);
+      const playerPos = this.shipperController.getIsActive() ? this.shipperController.getPosition() : undefined;
+      this.policeChaseSystem.update(dt, playerPos);
+    });
+
+    // Wire Police Chase event telemetry to Alert Banner
+    this.policeChaseSystem.setStatusCallback((status) => {
+      if (status.isActive) {
+        this.elPoliceChaseBanner.style.display = 'block';
+        this.elChaseBannerMsg.textContent = status.message;
+        this.elBtnTriggerChase.classList.add('active-chase');
+      } else {
+        this.elPoliceChaseBanner.style.display = 'none';
+        this.elBtnTriggerChase.classList.remove('active-chase');
+      }
     });
 
     // Wire shipper telemetry to in-game HUD
@@ -291,13 +328,45 @@ class SaigonShipperApp {
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }));
     });
 
-    // Keyboard Shortcuts for Sidebar
+    // Trigger / Toggle Police Chase Pursuit Event
+    this.elBtnTriggerChase.addEventListener('click', () => {
+      AudioManager.getInstance().ensureResumed();
+      if (this.policeChaseSystem.getIsActive()) {
+        this.policeChaseSystem.stopChaseEvent();
+        this.appendTelemetryLog(`[Cảnh sát CSGT] Đã dừng sự kiện truy bắt cướp.`, 'info');
+      } else {
+        const playerPos = this.shipperController.getIsActive() ? this.shipperController.getPosition() : undefined;
+        this.policeChaseSystem.startChaseEvent(playerPos);
+        this.appendTelemetryLog(`[Cảnh sát CSGT] 🚨 Bắt đầu sự kiện truy đuổi đối tượng cướp giật phóng bạt mạng!`, 'warn');
+      }
+    });
+
+    this.elBtnCloseChase.addEventListener('click', () => {
+      this.policeChaseSystem.stopChaseEvent();
+      this.appendTelemetryLog(`[Cảnh sát CSGT] Đã đóng sự kiện truy bắt.`, 'info');
+    });
+
+    // Periodic spontaneous Police Chase event (occurs every 75 seconds if not already running)
+    setInterval(() => {
+      if (!this.policeChaseSystem.getIsActive() && Math.random() < 0.65) {
+        const playerPos = this.shipperController.getIsActive() ? this.shipperController.getPosition() : undefined;
+        this.policeChaseSystem.startChaseEvent(playerPos);
+        this.appendTelemetryLog(
+          `[Sự kiện Đô thị] 🚨 Cảnh sát phát hiện cướp giật trên phố và đang mở cuộc truy đuổi tốc độ cao!`,
+          'warn'
+        );
+      }
+    }, 75000);
+
+    // Keyboard Shortcuts for Sidebar & Game Events
     window.addEventListener('keydown', (e: KeyboardEvent) => {
       if (e.code === 'Tab') {
         e.preventDefault();
         this.toggleSidebar();
       } else if (e.code === 'KeyH' && !this.shipperController.getIsActive()) {
         this.toggleSidebar();
+      } else if (e.code === 'KeyP') {
+        this.elBtnTriggerChase.click();
       }
     });
 
@@ -636,12 +705,20 @@ class SaigonShipperApp {
       this.cityTraffic.initSimulation(fusionResult.roadGraph);
       this.sceneManager.scene.add(this.cityTraffic.group);
 
+      // 5H. Crowded Vietnamese Pedestrians on Sidewalks (650+ Người dân đi bộ đội nón lá)
+      this.pedestrianSystem.initPedestrians(fusionResult.roadGraph);
+      this.sceneManager.scene.add(this.pedestrianSystem.group);
+
+      // 5I. Police Chase Pursuit System (Sự kiện Cảnh sát rượt đuổi tội phạm cướp giật)
+      this.policeChaseSystem.setEnvironment(fusionResult.roadGraph);
+      this.sceneManager.scene.add(this.policeChaseSystem.group);
+
       // Step 6: Initialize Shipper scooter environment
       this.shipperController.setEnvironment(fusionResult.buildings, fusionResult.roadGraph);
 
       const totalTime = (performance.now() - startTime) / 1000;
       this.appendTelemetryLog(
-        `[Đô thị Sài Gòn 3D] ~4.8 km² • ${fusionResult.buildings.length} tòa nhà • ${treePositions.length} cây xanh • Hệ thống cột đèn tín hiệu chuẩn ngã ba/ngã tư • 3.000 xe tuân thủ làn đường & đèn đỏ • Dựng xong trong ${totalTime.toFixed(1)}s (Nghiêng 53°)`,
+        `[Đô thị Sài Gòn 3D] ~4.8 km² • ${fusionResult.buildings.length} tòa nhà • ${treePositions.length} cây xanh • 3.000 xe tuân thủ đèn tín hiệu • 650+ người dân đi bộ trên vỉa hè • Sẵn sàng sự kiện Cảnh sát truy bắt cướp giật (Phím P hoặc nút Bắt cướp) • Dựng xong trong ${totalTime.toFixed(1)}s`,
         'success'
       );
 

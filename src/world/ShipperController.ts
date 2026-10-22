@@ -152,6 +152,10 @@ export class ShipperController {
     return this.isActive;
   }
 
+  public getPosition(): { x: number; y: number; z: number } {
+    return { x: this.position.x, y: this.position.y, z: this.position.z };
+  }
+
   public setStatusCallback(callback: (status: ShipperStatus) => void): void {
     this.onStatusChange = callback;
   }

@@ -109,22 +109,22 @@ export class ShipperController {
     if (roadGraph.nodes.size > 0) {
       const firstNode = roadGraph.nodes.values().next().value;
       if (firstNode) {
-        this.resetPosition(firstNode.x, firstNode.z, firstNode.y ?? 0.08);
+        this.resetPosition(firstNode.x, firstNode.z, firstNode.y ?? 0.05);
         return;
       }
     }
-    this.resetPosition(0, 0, 0.08);
+    this.resetPosition(0, 0, 0.05);
   }
 
   public resetPosition(x = 0, z = 0, y?: number): void {
-    let initY = y ?? 0.08;
+    let initY = y ?? 0.05;
     if (this.roadGraph && y === undefined) {
       let minDist = Infinity;
       for (const node of this.roadGraph.nodes.values()) {
         const d = Math.hypot(x - node.x, z - node.z);
         if (d < minDist) {
           minDist = d;
-          if (d < 20) initY = node.y ?? 0.08;
+          if (d < 20) initY = node.y ?? 0.05;
         }
       }
     }
@@ -386,7 +386,7 @@ export class ShipperController {
     nextPos.z += forwardZ * this.velocity * deltaTime;
 
     // Sample Road / Bridge Elevation from Road Graph
-    let targetY = 0.08;
+    let targetY = 0.05;
     let minEdgeDist = Infinity;
     let nearestEdge: any = null;
     let isOnBridgeDeck = false;
@@ -414,8 +414,8 @@ export class ShipperController {
 
         const isElevatedBridge = !!edge.isBridge || (n1.y ?? 0) > 0.5 || (n2.y ?? 0) > 0.5;
         if (isElevatedBridge && d < 7.5) {
-          const y1 = n1.y ?? 0.08;
-          const y2 = n2.y ?? 0.08;
+          const y1 = n1.y ?? 0.05;
+          const y2 = n2.y ?? 0.05;
           const edgeY = y1 + (y2 - y1) * t;
           if (edgeY > targetY) {
             targetY = edgeY;
@@ -444,8 +444,8 @@ export class ShipperController {
           const lenSq = dx * dx + dz * dz;
           if (lenSq >= 0.01) {
             const t = Math.max(0, Math.min(1, ((nextPos.x - n1.x) * dx + (nextPos.z - n1.z) * dz) / lenSq));
-            const y1 = n1.y ?? 0.08;
-            const y2 = n2.y ?? 0.08;
+            const y1 = n1.y ?? 0.05;
+            const y2 = n2.y ?? 0.05;
             targetY = y1 + (y2 - y1) * t;
           }
         }

@@ -20,8 +20,8 @@ export const DEFAULT_COORDS = {
   lon: parseFloat(import.meta.env.VITE_DEFAULT_LON || '106.7019'),
 };
 
-// Expanded metropolis area: ~2,200m x 2,200m (4.84 km² = 5x area of previous 1.0 km²)
-export const DEFAULT_RADIUS_METERS = 1100;
+// Expanded area size: ~1,000m x 1,000m (5x area of original 440m x 440m)
+export const DEFAULT_RADIUS_METERS = 500;
 
 export const SAIGON_PRESETS: PresetLocation[] = [
   {
@@ -59,24 +59,24 @@ export const SAIGON_PRESETS: PresetLocation[] = [
 ];
 
 export const ROAD_BUFFER_CONFIG: Record<string, { width: number; radiusKm: number; isAlley: boolean }> = {
-  motorway: { width: 14.0, radiusKm: 0.007, isAlley: false },
-  motorway_link: { width: 12.0, radiusKm: 0.006, isAlley: false },
-  trunk: { width: 14.0, radiusKm: 0.007, isAlley: false },
-  trunk_link: { width: 12.0, radiusKm: 0.006, isAlley: false },
+  motorway: { width: 18.0, radiusKm: 0.009, isAlley: false },
+  motorway_link: { width: 14.0, radiusKm: 0.007, isAlley: false },
+  trunk: { width: 18.0, radiusKm: 0.009, isAlley: false },
+  trunk_link: { width: 14.0, radiusKm: 0.007, isAlley: false },
   primary: { width: 14.0, radiusKm: 0.007, isAlley: false },
   primary_link: { width: 10.0, radiusKm: 0.005, isAlley: false },
-  secondary: { width: 9.0, radiusKm: 0.0045, isAlley: false },
+  secondary: { width: 10.0, radiusKm: 0.005, isAlley: false },
   secondary_link: { width: 8.0, radiusKm: 0.004, isAlley: false },
-  tertiary: { width: 9.0, radiusKm: 0.0045, isAlley: false },
-  tertiary_link: { width: 7.0, radiusKm: 0.0035, isAlley: false },
-  residential: { width: 6.0, radiusKm: 0.003, isAlley: false },
-  unclassified: { width: 6.0, radiusKm: 0.003, isAlley: false },
-  service: { width: 2.8, radiusKm: 0.0014, isAlley: true },
+  tertiary: { width: 8.0, radiusKm: 0.004, isAlley: false },
+  tertiary_link: { width: 6.5, radiusKm: 0.00325, isAlley: false },
+  residential: { width: 6.5, radiusKm: 0.00325, isAlley: false },
+  unclassified: { width: 6.5, radiusKm: 0.00325, isAlley: false },
+  service: { width: 3.5, radiusKm: 0.00175, isAlley: true },
   living_street: { width: 3.5, radiusKm: 0.00175, isAlley: true },
-  alley: { width: 2.8, radiusKm: 0.0014, isAlley: true },
-  pedestrian: { width: 4.0, radiusKm: 0.002, isAlley: false },
-  footway: { width: 2.5, radiusKm: 0.00125, isAlley: true },
-  path: { width: 2.2, radiusKm: 0.0011, isAlley: true },
+  alley: { width: 3.0, radiusKm: 0.0015, isAlley: true },
+  pedestrian: { width: 3.5, radiusKm: 0.00175, isAlley: false },
+  footway: { width: 2.2, radiusKm: 0.0011, isAlley: true },
+  path: { width: 2.0, radiusKm: 0.001, isAlley: true },
   steps: { width: 2.0, radiusKm: 0.001, isAlley: true },
 };
 
@@ -99,25 +99,18 @@ export const SAIGON_PALETTES = {
   pearlWhite: 0xf8fafc,
   concreteGrey: 0xe2e8f0,
   concreteDark: 0x334155,
-  // Modern Architectural Tower Facades & Glass Curtain Walls
-  towerSlate: 0x334155,       // Slate reflective architectural glass
-  towerNavy: 0x1e3a5f,        // Deep modern blue architectural glass
-  towerSteel: 0x475569,       // Brushed steel & glass frame
-  towerGlassBlue: 0x2563eb,   // Modern sapphire curtain wall
-  towerRoofMechanical: 0x94a3b8, // Light concrete mechanical penthouse roof
+  towerNavy: 0x1e293b,
+  towerSlate: 0x0f172a,
 
-  // Authentic Vietnamese Roof Tiles & Corrugated Metal Sheets (Matching reference image)
-  terracottaRoof: 0xdc2626,   // Classic Vietnamese red clay tile (Ngói đỏ)
-  crimsonRoof: 0xb91c1c,      // Deep crimson kiln-fired tile
-  orangeRoof: 0xea580c,       // Vibrant terracotta orange tile
-  cinnamonRoof: 0xc2410c,     // Rich cinnamon tile
-  blueRoof: 0x2563eb,         // Popular blue corrugated metal sheet (Tôn xanh)
-  sapphireRoof: 0x1d4ed8,     // Sapphire corrugated metal
-  mossGreenRoof: 0x15803d,    // Moss green corrugated metal
-  flatRoofTerracotta: 0xc2410c, // Terracotta rooftop patio tile
-  flatRoofOchre: 0xd97706,    // Warm ochre roof deck
-  flatRoofBlueMetal: 0x2563eb,// Rooftop metal shelter
-  flatRoofConcrete: 0xcfd4dc, // Cool grey concrete slab deck
+  // Authentic Roof Tiles & Corrugated Metal Sheets
+  terracottaRoof: 0xdc2626,
+  crimsonRoof: 0xb91c1c,
+  orangeRoof: 0xea580c,
+  cinnamonRoof: 0xc2410c,
+  blueRoof: 0x2563eb,
+  sapphireRoof: 0x1d4ed8,
+  mossGreenRoof: 0x15803d,
+  flatRoofConcrete: 0xe2e8f0,
 
   // Landmarks & Institutional
   historicRed: 0xb91c1c,
@@ -125,10 +118,12 @@ export const SAIGON_PALETTES = {
   glassTowerCyan: 0x38bdf8,
 
   // Pavement & Environment
-  mainAsphalt: 0x202226,
-  sidewalkConcrete: 0xe2e8f0,
-  alleyPavement: 0x64748b,
+  mainAsphalt: 0x2c2e33, // Real charcoal asphalt #2c2e33
+  sidewalkConcrete: 0xb8b5ad, // Light warm concrete #b8b5ad
+  curbDropColor: 0x9ca3af,
+  alleyPavement: 0x3d434d,
   tropicalWater: 0x0284c7,
   parkGreen: 0x4ade80,
+  roadMarkingWhite: 0xf8fafc,
+  roadMarkingYellow: 0xfacc15,
 };
-

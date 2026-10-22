@@ -792,4 +792,45 @@ html, body {
   color: #ffffff;
 }
 
+/* Teleport / Focus Button on Emergency Banner */
+.btn-chase-focus {
+  background: rgba(6, 182, 212, 0.25);
+  border: 1px solid rgba(6, 182, 212, 0.6);
+  color: #38bdf8;
+  padding: 5px 12px;
+  border-radius: 20px;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 0 10px rgba(6, 182, 212, 0.3);
+  transition: all 0.2s ease;
+}
+
+.btn-chase-focus:hover {
+  background: rgba(6, 182, 212, 0.55);
+  border-color: #38bdf8;
+  color: #ffffff;
+  transform: scale(1.06);
+  box-shadow: 0 0 16px rgba(6, 182, 212, 0.6);
+}
+
+.btn-chase-focus:active {
+  transform: scale(0.96);
+}
+
+.chase-banner-content {
+  cursor: pointer;
+}
+
+.chase-banner-content:hover {
+  transform: scale(1.02);
+}
+
+
 

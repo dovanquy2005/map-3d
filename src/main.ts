@@ -73,6 +73,7 @@ class SaigonShipperApp {
   private elChaseBadgeTitle!: HTMLElement;
   private elChaseBadgeBox!: HTMLElement;
   private elChaseBannerMsg!: HTMLElement;
+  private elBtnFocusChase!: HTMLButtonElement;
   private elBtnCloseChase!: HTMLButtonElement;
 
   private isBuilding = false;
@@ -126,6 +127,7 @@ class SaigonShipperApp {
     this.elChaseBadgeTitle = document.getElementById('chase-badge-title')!;
     this.elChaseBadgeBox = document.getElementById('chase-badge-box')!;
     this.elChaseBannerMsg = document.getElementById('chase-banner-msg')!;
+    this.elBtnFocusChase = document.getElementById('btn-focus-chase') as HTMLButtonElement;
     this.elBtnCloseChase = document.getElementById('btn-close-chase') as HTMLButtonElement;
 
     // Initialize audio icon state
@@ -359,9 +361,21 @@ class SaigonShipperApp {
       }
     });
 
-    this.elBtnCloseChase.addEventListener('click', () => {
+    this.elBtnCloseChase.addEventListener('click', (e) => {
+      e.stopPropagation();
       this.policeChaseSystem.stopEmergencyEvent();
       this.appendTelemetryLog(`[Sự kiện Khẩn cấp] Đã đóng sự kiện.`, 'info');
+    });
+
+    // Teleport / Focus on Active Event when clicking 'Đến xem' OR clicking the banner itself
+    this.elBtnFocusChase.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.teleportToActiveEvent();
+    });
+
+    this.elChaseBannerBox.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('#btn-close-chase')) return;
+      this.teleportToActiveEvent();
     });
 
     // Keyboard Shortcuts for Sidebar & Game Events
@@ -423,6 +437,29 @@ class SaigonShipperApp {
       this.elBtnModeOrbit.classList.remove('active');
       this.elShipperHud.style.display = 'flex';
       this.appendTelemetryLog(`[Chế độ] Đã nổ máy xe máy Shipper! Dùng W/S (Ga/Lùi), A/D (Lái), Q/E (Sin nhan), H (Còi)`, 'success');
+    }
+  }
+
+  /**
+   * Teleports or smoothly focuses camera directly onto the active emergency event (police or ambulance)
+   */
+  private teleportToActiveEvent(): void {
+    const eventPos = this.policeChaseSystem.getActiveEventPosition();
+    if (!eventPos) {
+      this.appendTelemetryLog(`[Sự kiện] Hiện chưa có sự kiện khẩn cấp nào đang diễn ra.`, 'info');
+      return;
+    }
+
+    AudioManager.getInstance().ensureResumed();
+
+    if (this.shipperController.getIsActive()) {
+      // In Shipper driving mode: teleport motorbike ~16m behind the emergency vehicle to join the pursuit!
+      this.shipperController.teleportTo(eventPos.x, eventPos.z, eventPos.heading, 16);
+      this.appendTelemetryLog(`[Dịch chuyển] 🛵 Đã đưa xe máy của bạn đến ngay phía sau sự kiện để cùng bám theo!`, 'success');
+    } else {
+      // In Orbit camera mode: smoothly focus and zoom camera onto the emergency vehicle!
+      this.sceneManager.focusOn(eventPos.x, eventPos.y, eventPos.z, 75, eventPos.heading);
+      this.appendTelemetryLog(`[Ống kính] 🔭 Đã lia góc nhìn camera đến tâm điểm sự kiện khẩn cấp!`, 'success');
     }
   }
 

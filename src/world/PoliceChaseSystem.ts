@@ -630,6 +630,25 @@ export class PoliceChaseSystem {
     return this.currentEvent;
   }
 
+  public getActiveEventPosition(): { x: number; y: number; z: number; heading: number } | null {
+    if (this.currentEvent === 'police_chase') {
+      return {
+        x: this.policePos.x,
+        y: this.policePos.y,
+        z: this.policePos.z,
+        heading: this.policeHeading,
+      };
+    } else if (this.currentEvent === 'ambulance_rush') {
+      return {
+        x: this.ambPos.x,
+        y: this.ambPos.y,
+        z: this.ambPos.z,
+        heading: this.ambHeading,
+      };
+    }
+    return null;
+  }
+
   /**
    * Main per-frame update loop for the emergency events and autonomic director
    */

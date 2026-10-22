@@ -137,6 +137,17 @@ export class ShipperController {
     this.bikeGroup.rotation.y = this.heading;
   }
 
+  public teleportTo(x: number, z: number, heading: number = 0, distanceBehind: number = 15): void {
+    const behindX = x - Math.sin(heading) * distanceBehind;
+    const behindZ = z - Math.cos(heading) * distanceBehind;
+    this.resetPosition(behindX, behindZ);
+    this.heading = heading;
+    this.velocity = 6.0; // Rolling speed
+    this.bikeGroup.position.copy(this.position);
+    this.bikeGroup.rotation.y = this.heading;
+    this.updateCamera(0.1, true); // Snap camera behind player
+  }
+
   public setActive(active: boolean): void {
     this.isActive = active;
     if (active) {
